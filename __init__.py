@@ -41,7 +41,7 @@ import bpy
 from bpy.props import StringProperty, BoolProperty, CollectionProperty
 from bpy_extras.io_utils import ImportHelper
 
-class ImportCOLLADA(bpy.types.Operator, ImportHelper):
+class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
     """ COLLADA import operator. """
 
     bl_idname= 'import_timknip.dae'
@@ -61,14 +61,9 @@ class ImportCOLLADA(bpy.types.Operator, ImportHelper):
             )
 
     def execute(self, context):
-        from . import import_dae
-        from . import collada_parser
-
-        keywords = self.as_keywords(ignore=('filter_glob', 'files', 'directory'))
-
-        keywords['parser'] = collada_parser.ColladaParser()
-
-        return import_dae.load(self, context, **keywords)
+        from . import io_import_collada
+        kwargs = self.as_keywords(ignore=('filter_glob', 'files', 'directory'))
+        return io_import_collada.load(self, context, **kwargs)
 
     def invoke(self, context, event):
         wm= context.window_manager
@@ -77,7 +72,7 @@ class ImportCOLLADA(bpy.types.Operator, ImportHelper):
 
 
 def menu_func_import(self, context):
-    self.layout.operator(IMPORT_OT_dae.bl_idname, text='COLLADA 1.4.1 (.dae)')
+    self.layout.operator(IMPORT_OT_collada.bl_idname, text='COLLADA (.dae)')
 
 
 def register():
@@ -88,7 +83,6 @@ def register():
 def unregister():
     bpy.utils.unregister_module(__name__)
     bpy.types.INFO_MT_file_import.remove(menu_func_import)
-    #bpy.types.INFO_MT_file_export.remove(menu_func_export)
 
 if __name__ == '__main__':
     register()
