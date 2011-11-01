@@ -1,0 +1,95 @@
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation,
+#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+# ##### END GPL LICENSE BLOCK #####
+
+# Script copyright (C) Tim Knip, floorplanner.com
+# Contributors: Tim Knip (tim@floorplanner.com)
+
+bl_info = {
+    'name'       : 'COLLADA 1.4.1 format',
+    'author'     : 'Tim Knip',
+    'blender'    : (2, 5, 7),
+    'api'        : 35622,
+    'location'   : 'File > Import',
+    'description': 'Import DAE',
+    'warning'    : '',
+    'wiki_url'   : 'https://github.com/skrat/blender-pycollada/wiki',
+    'tracker_url': 'https://github.com/skrat/blender-pycollada/issues',
+    'support'    : 'OFFICIAL',
+    'category'   : 'Import'}
+
+if 'bpy' in locals():
+    import imp
+    if 'import_collada' in locals():
+        imp.reload(import_collada)
+
+import bpy
+from bpy.props import StringProperty, BoolProperty, CollectionProperty
+from bpy_extras.io_utils import ImportHelper
+
+class ImportCOLLADA(bpy.types.Operator, ImportHelper):
+    """ COLLADA import operator. """
+
+    bl_idname= 'import_timknip.dae'
+    bl_label = 'Import DAE'
+    bl_options = {'UNDO'}
+
+    filter_glob = StringProperty(
+            default='*.dae',
+            options={'HIDDEN'},
+            )
+    files = CollectionProperty(
+            name='File Path',
+            type=bpy.types.OperatorFileListElement,
+            )
+    directory = StringProperty(
+            subtype='DIR_PATH',
+            )
+
+    def execute(self, context):
+        from . import import_dae
+        from . import collada_parser
+
+        keywords = self.as_keywords(ignore=('filter_glob', 'files', 'directory'))
+
+        keywords['parser'] = collada_parser.ColladaParser()
+
+        return import_dae.load(self, context, **keywords)
+
+    def invoke(self, context, event):
+        wm= context.window_manager
+        wm.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+
+def menu_func_import(self, context):
+    self.layout.operator(IMPORT_OT_dae.bl_idname, text='COLLADA 1.4.1 (.dae)')
+
+
+def register():
+    bpy.utils.register_module(__name__)
+    bpy.types.INFO_MT_file_import.append(menu_func_import)
+
+
+def unregister():
+    bpy.utils.unregister_module(__name__)
+    bpy.types.INFO_MT_file_import.remove(menu_func_import)
+    #bpy.types.INFO_MT_file_export.remove(menu_func_export)
+
+if __name__ == '__main__':
+    register()
+
