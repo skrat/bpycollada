@@ -20,17 +20,18 @@
 # Contributors: Tim Knip (tim@floorplanner.com)
 
 bl_info = {
-    'name'       : 'COLLADA 1.4.1 format',
-    'author'     : 'Tim Knip',
+    'name'       : 'COLLADA format',
+    'author'     : 'Tim Knip, Dusan Maliarik',
     'blender'    : (2, 5, 7),
     'api'        : 35622,
     'location'   : 'File > Import',
-    'description': 'Import DAE',
+    'description': 'Import COLLADA',
     'warning'    : '',
     'wiki_url'   : 'https://github.com/skrat/blender-pycollada/wiki',
     'tracker_url': 'https://github.com/skrat/blender-pycollada/issues',
     'support'    : 'OFFICIAL',
     'category'   : 'Import'}
+
 
 if 'bpy' in locals():
     import imp
@@ -41,11 +42,12 @@ import bpy
 from bpy.props import StringProperty, BoolProperty, CollectionProperty
 from bpy_extras.io_utils import ImportHelper
 
+
 class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
     """ COLLADA import operator. """
 
-    bl_idname= 'import_timknip.dae'
-    bl_label = 'Import DAE'
+    bl_idname= 'import_scene.collada'
+    bl_label = 'Import COLLADA'
     bl_options = {'UNDO'}
 
     filter_glob = StringProperty(
@@ -61,9 +63,9 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
             )
 
     def execute(self, context):
-        from . import io_import_collada
+        from . import import_collada
         kwargs = self.as_keywords(ignore=('filter_glob', 'files', 'directory'))
-        return io_import_collada.load(self, context, **kwargs)
+        return import_collada.load(self, context, **kwargs)
 
     def invoke(self, context, event):
         wm= context.window_manager
@@ -72,7 +74,7 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
 
 
 def menu_func_import(self, context):
-    self.layout.operator(IMPORT_OT_collada.bl_idname, text='COLLADA (.dae)')
+    self.layout.operator(IMPORT_OT_collada.bl_idname, text='COLLADA (py) (.dae)')
 
 
 def register():
