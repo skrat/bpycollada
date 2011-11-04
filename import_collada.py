@@ -43,7 +43,10 @@ class ColladaImport(object):
                 continue
 
             self._ctx.scene.objects.link(b_obj)
+            self._ctx.scene.objects.active = b_obj
             b_obj.matrix_world = _transposed(bgeom.matrix)
+            bpy.ops.object.material_slot_add()
+            b_obj.material_slots[0].material = b_materials[p.material]
 
     def import_geometry_triangleset(self, triset, b_name):
         b_mesh = None
