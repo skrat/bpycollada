@@ -58,11 +58,38 @@ class ColladaImport(object):
                 return
 
             b_mesh = bpy.data.meshes.new(b_name)
-            b_mesh.from_pydata(triset.vertex, [], triset.vertex_index)
-            if triset.normal_index is not None:
+            b_mesh.vertices.add(len(triset.vertex))
+            b_mesh.faces.add(len(triset.vertex_index))
+            for vidx, vertex in enumerate(triset.vertex):
+                b_mesh.vertices[vidx].co = vertex
+
+            # eekadoodle
+            eekadoodle_faces = []
+            for v1, v2, v3 in triset.vertex_index:
+                eekadoodle_faces.extend([v3, v1, v2, 0] if v3 == 0 else [v1, v2, v3, 0])
+            b_mesh.faces.foreach_set("vertices_raw", eekadoodle_faces)
+            
+            has_normal = (triset.normal_index is not None)
+            has_uv = (len(triset.texcoord_indexset) > 0)
+            
+            if has_normal or has_uv:
+                if has_uv:
+                    b_mesh.uv_textures.new()
                 for i, f in enumerate(b_mesh.faces):
-                    f.use_smooth = not _is_flat_face(
-                            triset.normal[triset.normal_index[i]])
+                    if has_normal:
+                        f.use_smooth = not _is_flat_face(
+                                triset.normal[triset.normal_index[i]])
+                    if has_uv:
+                        t1, t2, t3 = triset.texcoord_indexset[0][i]
+                        tface = b_mesh.uv_textures[0].data[i]
+                        # eekadoodle
+                        if triset.vertex_index[i][2] == 0:
+                            t1, t2, t3 = t3, t1, t2
+                        tface.uv1 = triset.texcoordset[0][t1]
+                        tface.uv2 = triset.texcoordset[0][t2]
+                        tface.uv3 = triset.texcoordset[0][t3]
+                        #tface.image = bmat_info.image
+                        
             b_mesh.update()
 
         b_obj = bpy.data.objects.new(b_name, b_mesh)
