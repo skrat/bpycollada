@@ -2,14 +2,18 @@ import bpy
 from hashlib import sha1
 from mathutils import Matrix, Vector
 
+from bpy_extras.image_utils import load_image
+
 from collada import Collada
 from collada.triangleset import TriangleSet
-
+from collada.material import Map
 
 def load(op, ctx, filepath=None, **kwargs):
+    import os
+    
     c = Collada(filepath)
-
-    imp = ColladaImport(ctx, c)
+    
+    imp = ColladaImport(ctx, c, os.path.dirname(filepath))
 
     for obj in c.scene.objects('geometry'):
         imp.import_geometry(obj)
@@ -18,11 +22,13 @@ def load(op, ctx, filepath=None, **kwargs):
 
 
 class ColladaImport(object):
-    def __init__(self, ctx, collada):
+    def __init__(self, ctx, collada, basedir):
         self._ctx = ctx
         self._collada = collada
+        self._basedir = basedir
         self._imported_geometries = []
-
+        self._images = {}
+        
     def import_geometry(self, bgeom):
         b_materials = {}
         for sym, matnode in bgeom.materialnodebysymbol.items():
@@ -36,7 +42,7 @@ class ColladaImport(object):
             b_obj = None
             b_meshname = self.import_name(bgeom.original, i)
             if isinstance(p, TriangleSet):
-                b_obj = self.import_geometry_triangleset(p, b_meshname)
+                b_obj = self.import_geometry_triangleset(p, b_meshname, b_materials[p.material])
             else:
                 continue
             if not b_obj:
@@ -48,7 +54,7 @@ class ColladaImport(object):
             bpy.ops.object.material_slot_add()
             b_obj.material_slots[0].material = b_materials[p.material]
 
-    def import_geometry_triangleset(self, triset, b_name):
+    def import_geometry_triangleset(self, triset, b_name, b_mat):
         b_mesh = None
         if b_name in bpy.data.meshes:
             b_mesh = bpy.data.meshes[b_name]
@@ -88,7 +94,8 @@ class ColladaImport(object):
                         tface.uv1 = triset.texcoordset[0][t1]
                         tface.uv2 = triset.texcoordset[0][t2]
                         tface.uv3 = triset.texcoordset[0][t3]
-                        #tface.image = bmat_info.image
+                        if b_mat.name in self._images:
+                            tface.image = self._images[b_mat.name]
                         
             b_mesh.update()
 
@@ -118,9 +125,22 @@ class ColladaImport(object):
         self.import_rendering_diffuse(effect.diffuse, b_mat)
 
     def import_rendering_diffuse(self, diffuse, b_mat):
-        if isinstance(diffuse, tuple):
+        if isinstance(diffuse, Map):
+            image_path = diffuse.sampler.surface.image.path
+            image = load_image(image_path, self._basedir)
+            if image is not None:
+                texture = bpy.data.textures.new(name='Kd', type='IMAGE')
+                texture.image = image
+                mtex = b_mat.texture_slots.add()
+                mtex.texture_coords = 'UV'
+                mtex.texture = texture
+                mtex.use_map_color_diffuse = True
+                self._images[b_mat.name] = image
+            else:
+                b_mat.diffuse_color = 1., 0., 0.
+        elif isinstance(diffuse, tuple):
             b_mat.diffuse_color = diffuse[:3]
-
+                
     def import_name(self, obj, index=0):
         base = ('%s-%d' % (obj.id, index))
         return base[:10] + sha1(base.encode('utf-8')
