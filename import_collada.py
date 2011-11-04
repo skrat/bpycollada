@@ -1,3 +1,4 @@
+import os
 import bpy
 from hashlib import sha1
 from mathutils import Matrix, Vector
@@ -9,7 +10,6 @@ from collada.triangleset import TriangleSet
 from collada.material import Map
 
 def load(op, ctx, filepath=None, **kwargs):
-    import os
     
     c = Collada(filepath)
     
