@@ -1,19 +1,30 @@
+import sys
+sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2')
+sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages')
+sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages/pycollada-0.3-py3.2.egg')
+sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages/python_dateutil-2.0-py3.2.egg')
+
 import os
 import bpy
 from hashlib import sha1
 from mathutils import Matrix, Vector
-
 from bpy_extras.image_utils import load_image
 
 from collada import Collada
 from collada.triangleset import TriangleSet
 from collada.material import Map
 
+
+__all__ = ['load']
+
+VENDOR_SPECIFIC = []
+COLLADA_NS = 'http://www.collada.org/2005/11/COLLADASchema'
+
+
 def load(op, ctx, filepath=None, **kwargs):
-    
     c = Collada(filepath)
-    
-    imp = ColladaImport(ctx, c, os.path.dirname(filepath))
+    impclass = get_import(c)
+    imp = impclass(ctx, c, os.path.dirname(filepath))
 
     for obj in c.scene.objects('geometry'):
         imp.import_geometry(obj)
@@ -21,14 +32,21 @@ def load(op, ctx, filepath=None, **kwargs):
     return {'FINISHED'}
 
 
+def get_import(collada):
+    for i in VENDOR_SPECIFIC:
+        if i.match(collada):
+            return i
+    return ColladaImport
+
+
 class ColladaImport(object):
+    """ Standard COLLADA importer. """
     def __init__(self, ctx, collada, basedir):
         self._ctx = ctx
         self._collada = collada
         self._basedir = basedir
-        self._imported_geometries = []
         self._images = {}
-        
+
     def import_geometry(self, bgeom):
         b_materials = {}
         for sym, matnode in bgeom.materialnodebysymbol.items():
@@ -40,9 +58,11 @@ class ColladaImport(object):
 
         for i, p in enumerate(bgeom.original.primitives):
             b_obj = None
+            b_mat = b_materials.get(p.material, None)
             b_meshname = self.import_name(bgeom.original, i)
             if isinstance(p, TriangleSet):
-                b_obj = self.import_geometry_triangleset(p, b_meshname, b_materials[p.material])
+                b_obj = self.import_geometry_triangleset(
+                        p, b_meshname, b_mat)
             else:
                 continue
             if not b_obj:
@@ -52,7 +72,7 @@ class ColladaImport(object):
             self._ctx.scene.objects.active = b_obj
             b_obj.matrix_world = _transposed(bgeom.matrix)
             bpy.ops.object.material_slot_add()
-            b_obj.material_slots[0].material = b_materials[p.material]
+            b_obj.material_slots[0].material = b_mat
 
     def import_geometry_triangleset(self, triset, b_name, b_mat):
         b_mesh = None
@@ -73,11 +93,11 @@ class ColladaImport(object):
             eekadoodle_faces = []
             for v1, v2, v3 in triset.vertex_index:
                 eekadoodle_faces.extend([v3, v1, v2, 0] if v3 == 0 else [v1, v2, v3, 0])
-            b_mesh.faces.foreach_set("vertices_raw", eekadoodle_faces)
-            
+            b_mesh.faces.foreach_set('vertices_raw', eekadoodle_faces)
+
             has_normal = (triset.normal_index is not None)
             has_uv = (len(triset.texcoord_indexset) > 0)
-            
+
             if has_normal or has_uv:
                 if has_uv:
                     b_mesh.uv_textures.new()
@@ -99,7 +119,7 @@ class ColladaImport(object):
                             if image.has_data and image.depth == 32:
                                 tface.alpha_blend = 'ALPHA'
                             tface.image = self._images[b_mat.name]
-                        
+
             b_mesh.update()
 
         b_obj = bpy.data.objects.new(b_name, b_mesh)
@@ -138,23 +158,63 @@ class ColladaImport(object):
                 mtex.texture_coords = 'UV'
                 mtex.texture = texture
                 mtex.use_map_color_diffuse = True
-                if image.has_data and image.depth == 32:
-                    mtex.use_map_alpha = True
-                    texture.use_mipmap = True
-                    texture.use_interpolation = True
-                    texture.use_alpha = True
-                    b_mat.use_transparency = True
-                    b_mat.alpha = 0.0
                 self._images[b_mat.name] = image
             else:
                 b_mat.diffuse_color = 1., 0., 0.
         elif isinstance(diffuse, tuple):
             b_mat.diffuse_color = diffuse[:3]
-                
+
     def import_name(self, obj, index=0):
         base = ('%s-%d' % (obj.id, index))
         return base[:10] + sha1(base.encode('utf-8')
                 ).hexdigest()[:10]
+
+
+class SketchUpImport(ColladaImport):
+    """ SketchUp specific COLLADA import.
+
+    Features:
+
+    - imports PNG textures with alpha channel
+    """
+    def import_rendering_diffuse(self, diffuse, b_mat):
+        print("---- SU imp")
+        ColladaImport.import_rendering_diffuse(self, diffuse, b_mat)
+        if isinstance(diffuse, Map):
+            if b_mat.name in self._images:
+                image = self._images[b_mat.name]
+                if image.has_data and image.depth == 32:
+                    diffslot = None
+                    for ts in b_mat.texture_slots:
+                        if ts.use_map_diffuse:
+                            diffslot = ts
+                            break
+                    diffslot.use_map_alpha = True
+                    tex = diffslot.texture
+                    tex.use_mipmap = True
+                    tex.use_interpolation = True
+                    tex.use_alpha = True
+                    b_mat.use_transparency = True
+                    b_mat.alpha = 0.0
+
+    @classmethod
+    def match(cls, collada):
+        xml = collada.xmlnode
+        ns = {'dae': COLLADA_NS}
+        def test1():
+            src = [ xml.find('//dae:instance_visual_scene',
+                        namespaces=ns).get('url') ]
+            at = xml.find('//dae:authoring_tool', namespaces=ns)
+            if at is not None:
+                src.append(at.text)
+            return all(['SketchUp' in s for s in src if s])
+        def test2():
+            et = xml.find('//dae:extra/dae:technique',
+                    namespaces=ns)
+            return et is not None and et.get('profile') == 'GOOGLEEARTH'
+        return test1() or test2()
+
+VENDOR_SPECIFIC.append(SketchUpImport)
 
 
 def _is_flat_face(normal):
