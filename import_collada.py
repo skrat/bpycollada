@@ -1,9 +1,3 @@
-import sys
-sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2')
-sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages')
-sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages/pycollada-0.3-py3.2.egg')
-sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages/python_dateutil-2.0-py3.2.egg')
-
 import os
 import bpy
 from hashlib import sha1
