@@ -1,3 +1,8 @@
+import sys
+sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2')
+sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages')
+sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages/pycollada-0.3-py3.2.egg')
+sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages/python_dateutil-2.0-py3.2.egg')
 import os
 import bpy
 from hashlib import sha1
@@ -92,27 +97,18 @@ class ColladaImport(object):
             has_normal = (triset.normal_index is not None)
             has_uv = (len(triset.texcoord_indexset) > 0)
 
-            if has_normal or has_uv:
-                if has_uv:
-                    b_mesh.uv_textures.new()
+            if has_normal:
                 for i, f in enumerate(b_mesh.faces):
-                    if has_normal:
-                        f.use_smooth = not _is_flat_face(
-                                triset.normal[triset.normal_index[i]])
-                    if has_uv:
-                        t1, t2, t3 = triset.texcoord_indexset[0][i]
-                        tface = b_mesh.uv_textures[0].data[i]
-                        # eekadoodle
-                        if triset.vertex_index[i][2] == 0:
-                            t1, t2, t3 = t3, t1, t2
-                        tface.uv1 = triset.texcoordset[0][t1]
-                        tface.uv2 = triset.texcoordset[0][t2]
-                        tface.uv3 = triset.texcoordset[0][t3]
-                        if b_mat.name in self._images:
-                            image = self._images[b_mat.name]
-                            if image.has_data and image.depth == 32:
-                                tface.alpha_blend = 'ALPHA'
-                            tface.image = self._images[b_mat.name]
+                    f.use_smooth = not _is_flat_face(
+                            triset.normal[triset.normal_index[i]])
+            if has_uv:
+                for j in range(len(triset.texcoord_indexset)):
+                    self.import_texcoord_layer(
+                            triset,
+                            triset.texcoordset[j],
+                            triset.texcoord_indexset[j],
+                            b_mesh,
+                            b_mat)
 
             b_mesh.update()
 
@@ -136,12 +132,14 @@ class ColladaImport(object):
     def import_rendering_lambert(self, mat, b_mat):
         effect = mat.effect
         self.import_rendering_diffuse(effect.diffuse, b_mat)
+        b_mat.specular_intensity = 0.0
 
     def import_rendering_phong(self, mat, b_mat):
         effect = mat.effect
         self.import_rendering_diffuse(effect.diffuse, b_mat)
 
     def import_rendering_diffuse(self, diffuse, b_mat):
+        b_mat.diffuse_intensity = 1.0
         if isinstance(diffuse, Map):
             image_path = diffuse.sampler.surface.image.path
             image = load_image(image_path, self._basedir)
@@ -158,6 +156,20 @@ class ColladaImport(object):
         elif isinstance(diffuse, tuple):
             b_mat.diffuse_color = diffuse[:3]
 
+    def import_texcoord_layer(self, triset, texcoord, index, b_mesh, b_mat):
+        b_mesh.uv_textures.new()
+        for i, f in enumerate(b_mesh.faces):
+            t1, t2, t3 = index[i]
+            tface = b_mesh.uv_textures[-1].data[i]
+            # eekadoodle
+            if triset.vertex_index[i][2] == 0:
+                t1, t2, t3 = t3, t1, t2
+            tface.uv1 = texcoord[t1]
+            tface.uv2 = texcoord[t2]
+            tface.uv3 = texcoord[t3]
+            if b_mat.name in self._images:
+                tface.image = self._images[b_mat.name]
+
     def import_name(self, obj, index=0):
         base = ('%s-%d' % (obj.id, index))
         return base[:10] + sha1(base.encode('utf-8')
@@ -165,23 +177,28 @@ class ColladaImport(object):
 
 
 class SketchUpImport(ColladaImport):
-    """ SketchUp specific COLLADA import.
+    """ SketchUp specific COLLADA import. """
 
-    Features:
+    def import_material(self, mat, b_name):
+        """ Receive transparent shadows everywhere. """
+        ColladaImport.import_material(self, mat, b_name)
+        bpy.data.materials[b_name].use_transparent_shadows = True
 
-    - imports PNG textures with alpha channel
-    """
     def import_rendering_diffuse(self, diffuse, b_mat):
+        """ Imports PNG textures with alpha channel. """
         ColladaImport.import_rendering_diffuse(self, diffuse, b_mat)
         if isinstance(diffuse, Map):
             if b_mat.name in self._images:
                 image = self._images[b_mat.name]
-                if image.has_data and image.depth == 32:
+                if image.depth == 32:
                     diffslot = None
                     for ts in b_mat.texture_slots:
-                        if ts.use_map_diffuse:
+                        if ts and ts.use_map_color_diffuse:
                             diffslot = ts
                             break
+                    if not diffslot:
+                        return
+                    image.use_premultiply = True
                     diffslot.use_map_alpha = True
                     tex = diffslot.texture
                     tex.use_mipmap = True
@@ -195,14 +212,14 @@ class SketchUpImport(ColladaImport):
         xml = collada.xmlnode
         ns = {'dae': COLLADA_NS}
         def test1():
-            src = [ xml.find('//dae:instance_visual_scene',
+            src = [ xml.find('.//dae:instance_visual_scene',
                         namespaces=ns).get('url') ]
-            at = xml.find('//dae:authoring_tool', namespaces=ns)
+            at = xml.find('.//dae:authoring_tool', namespaces=ns)
             if at is not None:
                 src.append(at.text)
             return any(['SketchUp' in s for s in src if s])
         def test2():
-            et = xml.find('//dae:extra/dae:technique',
+            et = xml.find('.//dae:extra/dae:technique',
                     namespaces=ns)
             return et is not None and et.get('profile') == 'GOOGLEEARTH'
         return test1() or test2()
