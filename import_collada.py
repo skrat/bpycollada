@@ -95,6 +95,9 @@ class ColladaImport(object):
                         tface.uv2 = triset.texcoordset[0][t2]
                         tface.uv3 = triset.texcoordset[0][t3]
                         if b_mat.name in self._images:
+                            image = self._images[b_mat.name]
+                            if image.has_data and image.depth == 32:
+                                tface.alpha_blend = 'ALPHA'
                             tface.image = self._images[b_mat.name]
                         
             b_mesh.update()
@@ -135,6 +138,13 @@ class ColladaImport(object):
                 mtex.texture_coords = 'UV'
                 mtex.texture = texture
                 mtex.use_map_color_diffuse = True
+                if image.has_data and image.depth == 32:
+                    mtex.use_map_alpha = True
+                    texture.use_mipmap = True
+                    texture.use_interpolation = True
+                    texture.use_alpha = True
+                    b_mat.use_transparency = True
+                    b_mat.alpha = 0.0
                 self._images[b_mat.name] = image
             else:
                 b_mat.diffuse_color = 1., 0., 0.
