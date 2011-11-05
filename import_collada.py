@@ -172,7 +172,6 @@ class SketchUpImport(ColladaImport):
     - imports PNG textures with alpha channel
     """
     def import_rendering_diffuse(self, diffuse, b_mat):
-        print("---- SU imp")
         ColladaImport.import_rendering_diffuse(self, diffuse, b_mat)
         if isinstance(diffuse, Map):
             if b_mat.name in self._images:
