@@ -1,8 +1,3 @@
-import sys
-sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2')
-sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages')
-sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages/pycollada-0.3-py3.2.egg')
-sys.path.append('/Library/Frameworks/Python.framework/Versions/3.2/lib/python3.2/site-packages/python_dateutil-2.0-py3.2.egg')
 import os
 import bpy
 from hashlib import sha1
@@ -125,18 +120,22 @@ class ColladaImport(object):
     def import_rendering_blinn(self, mat, b_mat):
         effect = mat.effect
         self.import_rendering_diffuse(effect.diffuse, b_mat)
+        self.import_rendering_transparency(effect, b_mat)
 
     def import_rendering_constant(self, mat, b_mat):
         effect = mat.effect
+        self.import_rendering_transparency(effect, b_mat)
 
     def import_rendering_lambert(self, mat, b_mat):
         effect = mat.effect
         self.import_rendering_diffuse(effect.diffuse, b_mat)
+        self.import_rendering_transparency(effect, b_mat)
         b_mat.specular_intensity = 0.0
 
     def import_rendering_phong(self, mat, b_mat):
         effect = mat.effect
         self.import_rendering_diffuse(effect.diffuse, b_mat)
+        self.import_rendering_transparency(effect, b_mat)
 
     def import_rendering_diffuse(self, diffuse, b_mat):
         b_mat.diffuse_intensity = 1.0
@@ -155,6 +154,14 @@ class ColladaImport(object):
                 b_mat.diffuse_color = 1., 0., 0.
         elif isinstance(diffuse, tuple):
             b_mat.diffuse_color = diffuse[:3]
+
+    def import_rendering_transparency(self, effect, b_mat):
+        if not effect.transparency:
+            return
+        if isinstance(effect.transparency, float):
+            if effect.transparency < 1.0:
+                b_mat.use_transparency = True
+                b_mat.alpha = effect.transparency
 
     def import_texcoord_layer(self, triset, texcoord, index, b_mesh, b_mat):
         b_mesh.uv_textures.new()
