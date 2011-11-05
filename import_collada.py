@@ -200,7 +200,7 @@ class SketchUpImport(ColladaImport):
             at = xml.find('//dae:authoring_tool', namespaces=ns)
             if at is not None:
                 src.append(at.text)
-            return all(['SketchUp' in s for s in src if s])
+            return any(['SketchUp' in s for s in src if s])
         def test2():
             et = xml.find('//dae:extra/dae:technique',
                     namespaces=ns)
