@@ -1,12 +1,14 @@
 import os
 import bpy
+import math
 from hashlib import sha1
 from mathutils import Matrix, Vector
 from bpy_extras.image_utils import load_image
 
 from collada import Collada
-from collada.triangleset import TriangleSet
+from collada.camera import PerspectiveCamera, OrthographicCamera
 from collada.material import Map
+from collada.triangleset import TriangleSet
 
 
 __all__ = ['load']
@@ -22,6 +24,9 @@ def load(op, ctx, filepath=None, **kwargs):
 
     for obj in c.scene.objects('geometry'):
         imp.import_geometry(obj)
+
+    for obj in c.scene.objects('camera'):
+        imp.import_camera(obj)
 
     return {'FINISHED'}
 
@@ -40,6 +45,28 @@ class ColladaImport(object):
         self._collada = collada
         self._basedir = basedir
         self._images = {}
+
+    def import_camera(self, bcam):
+        bpy.ops.object.add(type='CAMERA')
+        b_obj = self._ctx.object
+        b_obj.name = self.import_name(bcam.original, id(bcam))
+        b_obj.matrix_world = _transposed(bcam.matrix)
+        b_cam = b_obj.data
+        if isinstance(bcam.original, PerspectiveCamera):
+            b_cam.type = 'PERSP'
+            b_cam.lens_unit = 'DEGREES'
+            b_cam.angle = math.radians(max(
+                    bcam.xfov or bcam.yfov,
+                    bcam.yfov or bcam.xfov))
+        elif isinstance(bcam.original, OrthographicCamera):
+            b_cam.type = 'ORTHO'
+            b_cam.ortho_scale = max(
+                    bcam.xmag or bcam.ymag,
+                    bcam.ymag or bcam.xmag)
+        if bcam.znear:
+            b_cam.clip_start = bcam.znear
+        if bcam.zfar:
+            b_cam.clip_end = bcam.zfar
 
     def import_geometry(self, bgeom):
         b_materials = {}
