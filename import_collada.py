@@ -1,3 +1,6 @@
+import sys
+sys.path.append('/usr/local/lib/python3.2/dist-packages')
+sys.path.append('/usr/local/lib/python3.2/dist-packages/pycollada-0.3-py3.2.egg')
 import os
 import bpy
 import math
@@ -20,7 +23,7 @@ COLLADA_NS = 'http://www.collada.org/2005/11/COLLADASchema'
 def load(op, ctx, filepath=None, **kwargs):
     c = Collada(filepath)
     impclass = get_import(c)
-    imp = impclass(ctx, c, os.path.dirname(filepath))
+    imp = impclass(ctx, c, os.path.dirname(filepath), **kwargs)
 
     for obj in c.scene.objects('geometry'):
         imp.import_geometry(obj)
@@ -40,10 +43,11 @@ def get_import(collada):
 
 class ColladaImport(object):
     """ Standard COLLADA importer. """
-    def __init__(self, ctx, collada, basedir):
+    def __init__(self, ctx, collada, basedir, **kwargs):
         self._ctx = ctx
         self._collada = collada
         self._basedir = basedir
+        self._kwargs = kwargs
         self._images = {}
 
     def import_camera(self, bcam):
@@ -93,6 +97,7 @@ class ColladaImport(object):
             self._ctx.scene.objects.active = b_obj
             b_obj.matrix_world = _transposed(bgeom.matrix)
             bpy.ops.object.material_slot_add()
+            b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
 
     def import_geometry_triangleset(self, triset, b_name, b_mat):
@@ -112,8 +117,9 @@ class ColladaImport(object):
 
             # eekadoodle
             eekadoodle_faces = []
-            for v1, v2, v3 in triset.vertex_index:
-                eekadoodle_faces.extend([v3, v1, v2, 0] if v3 == 0 else [v1, v2, v3, 0])
+            eekadoodle_faces = [v
+                    for f in triset.vertex_index
+                    for v in _eekadoodle_face(*f)]
             b_mesh.faces.foreach_set('vertices_raw', eekadoodle_faces)
 
             has_normal = (triset.normal_index is not None)
@@ -143,6 +149,8 @@ class ColladaImport(object):
         b_mat.diffuse_shader = 'LAMBERT'
         getattr(self, 'import_rendering_' + \
                 mat.effect.shadingtype)(mat, b_mat)
+        bpy.data.materials[b_name].use_transparent_shadows = \
+                self._kwargs.get('transparent_shadows', False)
 
     def import_rendering_blinn(self, mat, b_mat):
         effect = mat.effect
@@ -213,11 +221,6 @@ class ColladaImport(object):
 class SketchUpImport(ColladaImport):
     """ SketchUp specific COLLADA import. """
 
-    def import_material(self, mat, b_name):
-        """ Receive transparent shadows everywhere. """
-        ColladaImport.import_material(self, mat, b_name)
-        bpy.data.materials[b_name].use_transparent_shadows = True
-
     def import_rendering_diffuse(self, diffuse, b_mat):
         """ Imports PNG textures with alpha channel. """
         ColladaImport.import_rendering_diffuse(self, diffuse, b_mat)
@@ -253,9 +256,11 @@ class SketchUpImport(ColladaImport):
                 src.append(at.text)
             return any(['SketchUp' in s for s in src if s])
         def test2():
-            et = xml.find('.//dae:extra/dae:technique',
+            et = xml.findall('.//dae:extra/dae:technique',
                     namespaces=ns)
-            return et is not None and et.get('profile') == 'GOOGLEEARTH'
+            return len(et) and any([
+                t.get('profile') == 'GOOGLEEARTH'
+                for t in et])
         return test1() or test2()
 
 VENDOR_SPECIFIC.append(SketchUpImport)
@@ -273,4 +278,7 @@ def _transposed(matrix):
     m = Matrix(matrix)
     m.transpose()
     return m
+
+def _eekadoodle_face(v1, v2, v3):
+    return v3 == 0 and (v3, v1, v2, 0) or (v1, v2, v3, 0)
 

@@ -62,19 +62,26 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
             subtype='DIR_PATH',
             )
 
+    transparent_shadows = BoolProperty(
+            default=False,
+            name="Transparent shadows",
+            description="Import all materials receiving transparent shadows",
+            )
+
     def execute(self, context):
         from . import import_collada
         kwargs = self.as_keywords(ignore=('filter_glob', 'files', 'directory'))
         return import_collada.load(self, context, **kwargs)
 
     def invoke(self, context, event):
-        wm= context.window_manager
+        wm = context.window_manager
         wm.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
 
 def menu_func_import(self, context):
-    self.layout.operator(IMPORT_OT_collada.bl_idname, text='COLLADA (py) (.dae)')
+    self.layout.operator(IMPORT_OT_collada.bl_idname,
+            text="COLLADA (py) (.dae)")
 
 
 def register():
@@ -85,6 +92,7 @@ def register():
 def unregister():
     bpy.utils.unregister_module(__name__)
     bpy.types.INFO_MT_file_import.remove(menu_func_import)
+
 
 if __name__ == '__main__':
     register()
