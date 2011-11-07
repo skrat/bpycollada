@@ -15,6 +15,7 @@ __all__ = ['load']
 
 VENDOR_SPECIFIC = []
 COLLADA_NS = 'http://www.collada.org/2005/11/COLLADASchema'
+DAE_NS = {'dae': COLLADA_NS}
 
 
 def load(op, ctx, filepath=None, **kwargs):
@@ -142,50 +143,65 @@ class ColladaImport(object):
         return b_obj
 
     def import_material(self, mat, b_name):
+        effect = mat.effect
         b_mat = bpy.data.materials.new(b_name)
         b_mat.diffuse_shader = 'LAMBERT'
         getattr(self, 'import_rendering_' + \
-                mat.effect.shadingtype)(mat, b_mat)
+                effect.shadingtype)(mat, b_mat)
         bpy.data.materials[b_name].use_transparent_shadows = \
                 self._kwargs.get('transparent_shadows', False)
+        if effect.emission:
+            b_mat.emit = sum(effect.emission[:3]) / 3.0
+        self.import_rendering_transparency(effect, b_mat)
+        self.import_rendering_reflectivity(effect, b_mat)
 
     def import_rendering_blinn(self, mat, b_mat):
         effect = mat.effect
+        b_mat.specular_shader = 'BLINN'
         self.import_rendering_diffuse(effect.diffuse, b_mat)
-        self.import_rendering_transparency(effect, b_mat)
+        self.import_rendering_specular(effect, b_mat)
 
     def import_rendering_constant(self, mat, b_mat):
         effect = mat.effect
-        self.import_rendering_transparency(effect, b_mat)
+        b_mat.use_shadeless = True
 
     def import_rendering_lambert(self, mat, b_mat):
         effect = mat.effect
         self.import_rendering_diffuse(effect.diffuse, b_mat)
-        self.import_rendering_transparency(effect, b_mat)
         b_mat.specular_intensity = 0.0
 
     def import_rendering_phong(self, mat, b_mat):
         effect = mat.effect
+        b_mat.specular_shader = 'PHONG'
         self.import_rendering_diffuse(effect.diffuse, b_mat)
-        self.import_rendering_transparency(effect, b_mat)
+        self.import_rendering_specular(effect, b_mat)
 
     def import_rendering_diffuse(self, diffuse, b_mat):
         b_mat.diffuse_intensity = 1.0
-        if isinstance(diffuse, Map):
-            image_path = diffuse.sampler.surface.image.path
-            image = load_image(image_path, self._basedir)
-            if image is not None:
-                texture = bpy.data.textures.new(name='Kd', type='IMAGE')
-                texture.image = image
-                mtex = b_mat.texture_slots.add()
-                mtex.texture_coords = 'UV'
-                mtex.texture = texture
-                mtex.use_map_color_diffuse = True
-                self._images[b_mat.name] = image
-            else:
-                b_mat.diffuse_color = 1., 0., 0.
-        elif isinstance(diffuse, tuple):
-            b_mat.diffuse_color = diffuse[:3]
+        diff = self.import_texture(diffuse, b_mat)
+        if isinstance(diff, tuple):
+            b_mat.diffuse_color = diff
+        else:
+            diff.use_map_color_diffuse = True
+
+    def import_rendering_specular(self, effect, b_mat):
+        if effect.specular:
+            b_mat.specular_intensity = 1.0
+            b_mat.specular_color = effect.specular[:3]
+        if effect.shininess:
+            b_mat.specular_hardness = effect.shininess
+
+    def import_rendering_reflectivity(self, effect, b_mat):
+        if effect.reflectivity and effect.reflectivity > 0:
+            b_mat.raytrace_mirror.use = True
+            b_mat.raytrace_mirror.reflect_factor = effect.reflectivity
+            if effect.reflective:
+                refi = self.import_texture(effect.reflective, b_mat)
+                if isinstance(refi, tuple):
+                    b_mat.mirror_color = refi
+                else:
+                    # TODO use_map_mirror or use_map_raymir ?
+                    pass
 
     def import_rendering_transparency(self, effect, b_mat):
         if not effect.transparency:
@@ -208,6 +224,23 @@ class ColladaImport(object):
             tface.uv3 = texcoord[t3]
             if b_mat.name in self._images:
                 tface.image = self._images[b_mat.name]
+
+    def import_texture(self, color_or_texture, b_mat):
+        if isinstance(color_or_texture, Map):
+            image_path = color_or_texture.sampler.surface.image.path
+            image = load_image(image_path, self._basedir)
+            if image is not None:
+                texture = bpy.data.textures.new(name='Kd', type='IMAGE')
+                texture.image = image
+                mtex = b_mat.texture_slots.add()
+                mtex.texture_coords = 'UV'
+                mtex.texture = texture
+                self._images[b_mat.name] = image
+                return mtex
+            else:
+                return (1., 0., 0.)
+        elif isinstance(color_or_texture, tuple):
+            return color_or_texture[:3]
 
     def import_name(self, obj, index=0):
         base = ('%s-%d' % (obj.id, index))
@@ -241,24 +274,33 @@ class SketchUpImport(ColladaImport):
                     b_mat.use_transparency = True
                     b_mat.alpha = 0.0
 
+    def import_rendering_reflectivity(self, effect, b_mat):
+        """ There are no reflectivity controls in SketchUp """
+        if not self.__class__.test2(effect.xmlnode.find(
+                'dae:profile_COMMON', namespaces=DAE_NS)):
+            ColladaImport.import_rendering_reflectivity(self, effect, b_mat)
+
     @classmethod
     def match(cls, collada):
         xml = collada.xmlnode
-        ns = {'dae': COLLADA_NS}
-        def test1():
-            src = [ xml.find('.//dae:instance_visual_scene',
-                        namespaces=ns).get('url') ]
-            at = xml.find('.//dae:authoring_tool', namespaces=ns)
-            if at is not None:
-                src.append(at.text)
-            return any(['SketchUp' in s for s in src if s])
-        def test2():
-            et = xml.findall('.//dae:extra/dae:technique',
-                    namespaces=ns)
-            return len(et) and any([
-                t.get('profile') == 'GOOGLEEARTH'
-                for t in et])
-        return test1() or test2()
+        return cls.test1(xml) or cls.test2(xml)
+
+    @classmethod
+    def test1(cls, xml):
+        src = [ xml.find('.//dae:instance_visual_scene',
+                    namespaces=DAE_NS).get('url') ]
+        at = xml.find('.//dae:authoring_tool', namespaces=DAE_NS)
+        if at is not None:
+            src.append(at.text)
+        return any(['SketchUp' in s for s in src if s])
+
+    @classmethod
+    def test2(cls, xml):
+        et = xml.findall('.//dae:extra/dae:technique',
+                namespaces=DAE_NS)
+        return len(et) and any([
+            t.get('profile') == 'GOOGLEEARTH'
+            for t in et])
 
 VENDOR_SPECIFIC.append(SketchUpImport)
 
