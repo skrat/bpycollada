@@ -7,6 +7,7 @@ from bpy_extras.image_utils import load_image
 
 from collada import Collada
 from collada.camera import PerspectiveCamera, OrthographicCamera
+from collada.common import DaeError, DaeBrokenRefError
 from collada.material import Map
 from collada.triangleset import TriangleSet
 
@@ -19,7 +20,7 @@ DAE_NS = {'dae': COLLADA_NS}
 
 
 def load(op, ctx, filepath=None, **kwargs):
-    c = Collada(filepath)
+    c = Collada(filepath, ignore=[DaeBrokenRefError])
     impclass = get_import(c)
     imp = impclass(ctx, c, os.path.dirname(filepath), **kwargs)
 
