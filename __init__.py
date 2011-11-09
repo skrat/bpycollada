@@ -33,10 +33,9 @@ bl_info = {
     'category'   : 'Import'}
 
 
-if 'bpy' in locals():
+if 'bpy' in locals() and 'import_collada' in locals():
     import imp
-    if 'import_collada' in locals():
-        imp.reload(import_collada)
+    imp.reload(import_collada)
 
 import bpy
 from bpy.props import StringProperty, BoolProperty, CollectionProperty
@@ -66,6 +65,12 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
             default=False,
             name="Transparent shadows",
             description="Import all materials receiving transparent shadows",
+            )
+
+    raytrace_transparency = BoolProperty(
+            default=False,
+            name="Raytrace transparency",
+            description="Raytrace transparent materials",
             )
 
     def execute(self, context):

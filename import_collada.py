@@ -211,6 +211,12 @@ class ColladaImport(object):
             if effect.transparency < 1.0:
                 b_mat.use_transparency = True
                 b_mat.alpha = effect.transparency
+        if self._kwargs.get('raytrace_transparency', False):
+            b_mat.transparency_method = 'RAYTRACE'
+            b_mat.raytrace_transparency.ior = 1.0
+        if isinstance(effect.index_of_refraction, float):
+            b_mat.transparency_method = 'RAYTRACE'
+            b_mat.raytrace_transparency.ior = effect.index_of_refraction
 
     def import_texcoord_layer(self, triset, texcoord, index, b_mesh, b_mat):
         b_mesh.uv_textures.new()
