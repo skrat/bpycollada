@@ -23,9 +23,12 @@ def load(op, ctx, filepath=None, **kwargs):
     c = Collada(filepath, ignore=[DaeBrokenRefError])
     impclass = get_import(c)
     imp = impclass(ctx, c, os.path.dirname(filepath), **kwargs)
-
+    
+    # fixes smoothing issues
+    modifiers = ['EDGE_SPLIT']
+    
     for obj in c.scene.objects('geometry'):
-        imp.geometry(obj)
+        imp.geometry(obj, modifiers)
 
     for obj in c.scene.objects('camera'):
         imp.camera(obj)
@@ -71,7 +74,7 @@ class ColladaImport(object):
         if bcam.zfar:
             b_cam.clip_end = bcam.zfar
 
-    def geometry(self, bgeom):
+    def geometry(self, bgeom, modifiers=None):
         b_materials = {}
         for sym, matnode in bgeom.materialnodebysymbol.items():
             mat = matnode.target
@@ -98,7 +101,12 @@ class ColladaImport(object):
             bpy.ops.object.material_slot_add()
             b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
-
+            
+            if isinstance(modifiers, list):
+                for modifier in modifiers:
+                    name = "%s_%s" % (modifier, b_obj.name)
+                    bpy.context.object.modifiers.new(type=modifier, name=name)
+            
     def geometry_triangleset(self, triset, b_name, b_mat):
         b_mesh = None
         if b_name in bpy.data.meshes:
