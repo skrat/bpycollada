@@ -50,7 +50,7 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
     bl_options = {'UNDO'}
 
     filter_glob = StringProperty(
-            default='*.dae',
+            default='*.dae;*.kmz',
             options={'HIDDEN'},
             )
     files = CollectionProperty(

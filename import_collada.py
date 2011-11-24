@@ -1,8 +1,12 @@
+import sys
+sys.path.append('/usr/local/lib/python3.2/dist-packages')
+sys.path.append('/usr/local/lib/python3.2/dist-packages/pycollada-0.3-py3.2.egg')
 import os
 import bpy
 import math
 from hashlib import sha1
 from mathutils import Matrix, Vector
+from tempfile import mkdtemp
 from bpy_extras.image_utils import load_image
 
 from collada import Collada
@@ -24,10 +28,9 @@ def load(op, ctx, filepath=None, **kwargs):
     c = Collada(filepath, ignore=[DaeBrokenRefError])
     impclass = get_import(c)
     imp = impclass(ctx, c, os.path.dirname(filepath), **kwargs)
-    
-    # fixes smoothing issues
+
     modifiers = ['EDGE_SPLIT']
-    
+
     for obj in c.scene.objects('geometry'):
         imp.geometry(obj, modifiers)
 
@@ -105,12 +108,12 @@ class ColladaImport(object):
             bpy.ops.object.material_slot_add()
             b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
-            
+
             if isinstance(modifiers, list):
                 for modifier in modifiers:
                     name = "%s_%s" % (modifier, b_obj.name)
                     bpy.context.object.modifiers.new(type=modifier, name=name)
-            
+
     def geometry_triangleset(self, triset, b_name, b_mat):
         b_mesh = None
         if b_name in bpy.data.meshes:
@@ -191,7 +194,7 @@ class ColladaImport(object):
 
     def rendering_diffuse(self, diffuse, b_mat):
         b_mat.diffuse_intensity = 1.0
-        diff = self.texture(diffuse, b_mat)
+        diff = self.color_or_texture(diffuse, b_mat)
         if isinstance(diff, tuple):
             b_mat.diffuse_color = diff
         else:
@@ -209,7 +212,7 @@ class ColladaImport(object):
             b_mat.raytrace_mirror.use = True
             b_mat.raytrace_mirror.reflect_factor = effect.reflectivity
             if effect.reflective:
-                refi = self.texture(effect.reflective, b_mat)
+                refi = self.color_or_texture(effect.reflective, b_mat)
                 if isinstance(refi, tuple):
                     b_mat.mirror_color = refi
                 else:
@@ -244,27 +247,56 @@ class ColladaImport(object):
             if b_mat and b_mat.name in self._images:
                 tface.image = self._images[b_mat.name]
 
-    def texture(self, color_or_texture, b_mat):
+    def color_or_texture(self, color_or_texture, b_mat):
         if isinstance(color_or_texture, Map):
             image_path = color_or_texture.sampler.surface.image.path
-            image = load_image(image_path, self._basedir)
-            if image is not None:
-                texture = bpy.data.textures.new(name='Kd', type='IMAGE')
-                texture.image = image
-                mtex = b_mat.texture_slots.add()
-                mtex.texture_coords = 'UV'
-                mtex.texture = texture
-                self._images[b_mat.name] = image
-                return mtex
-            else:
-                return (1., 0., 0.)
+            mtex = self.try_texture(image_path, b_mat)
+            if not mtex and self._collada.zfile:
+                zp = os.path.normpath(os.path.join(
+                    os.path.dirname(self._collada.filename),
+                    image_path))
+                if zp not in self._collada.zfile.namelist():
+                    return (1., 0., 0.) # image data not found, mark red
+                mtex = self.try_texture(self._tmpwrite(
+                    zp, self._collada.zfile.open(zp)), b_mat)
+            return mtex or (1., 0., 0.)
         elif isinstance(color_or_texture, tuple):
             return color_or_texture[:3]
+
+    def try_texture(self, path, b_mat):
+        image = load_image(path)
+        if image is None:
+            image = load_image(path, self._basedir)
+        if image is not None:
+            texture = bpy.data.textures.new(name='Kd', type='IMAGE')
+            texture.image = image
+            mtex = b_mat.texture_slots.add()
+            mtex.texture_coords = 'UV'
+            mtex.texture = texture
+            self._images[b_mat.name] = image
+            return mtex
+        return None
 
     def name(self, obj, index=0):
         base = ('%s-%d' % (obj.id, index))
         return base[:10] + sha1(base.encode('utf-8')
                 ).hexdigest()[:10]
+
+    @property
+    def _tmpdir(self):
+        if hasattr(self, '__tmpdir'):
+            return self.__tmpdir
+        self.__tmpdir = mkdtemp()
+        return self.__tmpdir
+
+    def _tmpwrite(self, relpath, fp):
+        p = os.path.join(self._tmpdir, relpath)
+        leaf = os.path.dirname(p)
+        if not os.path.exists(leaf):
+            os.makedirs(leaf)
+        with open(p, 'wb') as out:
+            out.write(fp.read())
+        return p
 
 
 class SketchUpImport(ColladaImport):
