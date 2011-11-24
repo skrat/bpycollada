@@ -10,6 +10,7 @@ from collada.camera import PerspectiveCamera, OrthographicCamera
 from collada.common import DaeError, DaeBrokenRefError
 from collada.material import Map
 from collada.triangleset import TriangleSet
+from collada.polylist import Polylist
 
 
 __all__ = ['load']
@@ -90,6 +91,9 @@ class ColladaImport(object):
             if isinstance(p, TriangleSet):
                 b_obj = self.geometry_triangleset(
                         p, b_meshname, b_mat)
+            elif isinstance(p, Polylist):
+                b_obj = self.geometry_triangleset(
+                        p.triangleset(), b_meshname, b_mat)
             else:
                 continue
             if not b_obj:
