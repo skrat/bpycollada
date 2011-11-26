@@ -1,6 +1,3 @@
-import sys
-sys.path.append('/usr/local/lib/python3.2/dist-packages')
-sys.path.append('/usr/local/lib/python3.2/dist-packages/pycollada-0.3-py3.2.egg')
 import os
 import bpy
 import math
