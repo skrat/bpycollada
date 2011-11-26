@@ -33,20 +33,27 @@ bl_info = {
     'category'   : 'Import'}
 
 
-if 'bpy' in locals() and 'import_collada' in locals():
+if 'bpy' in locals():
     import imp
-    imp.reload(import_collada)
+    if 'import_collada' in locals():
+        imp.reload(import_collada)
+    if 'export_collada' in locals():
+        imp.reload(export_collada)
 
+import os
 import bpy
-from bpy.props import StringProperty, BoolProperty, CollectionProperty
-from bpy_extras.io_utils import ImportHelper
+from bpy.props import BoolProperty
+from bpy.props import CollectionProperty
+from bpy.props import EnumProperty
+from bpy.props import StringProperty
+from bpy_extras.io_utils import ImportHelper, ExportHelper
 
 
 class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
     """ COLLADA import operator. """
 
     bl_idname= 'import_scene.collada'
-    bl_label = 'Import COLLADA'
+    bl_label = "Import COLLADA"
     bl_options = {'UNDO'}
 
     filter_glob = StringProperty(
@@ -54,7 +61,7 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
             options={'HIDDEN'},
             )
     files = CollectionProperty(
-            name='File Path',
+            name="File Path",
             type=bpy.types.OperatorFileListElement,
             )
     directory = StringProperty(
@@ -75,7 +82,11 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         from . import import_collada
-        kwargs = self.as_keywords(ignore=('filter_glob', 'files', 'directory'))
+        kwargs = self.as_keywords(ignore=('filter_glob', 'files'))
+        if not os.path.isfile(kwargs['filepath']):
+            self.report({'ERROR'}, "COLLADA import failed, not a file " + \
+                    kwargs['filepath'])
+            return {'CANCELLED'}
         return import_collada.load(self, context, **kwargs)
 
     def invoke(self, context, event):
@@ -84,19 +95,79 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
         return {'RUNNING_MODAL'}
 
 
+class EXPORT_OT_collada(bpy.types.Operator, ExportHelper):
+    """ COLLADA export operator. """
+
+    bl_idname= 'export_scene.collada'
+    bl_label = "Export COLLADA"
+    bl_options = {'UNDO'}
+
+    filename_ext = '.dae'
+    filter_glob = StringProperty(
+            default='*.dae;*.kmz',
+            options={'HIDDEN'},
+            )
+    directory = StringProperty(
+            subtype='DIR_PATH',
+            )
+
+    export_as = EnumProperty(
+            name="Export as",
+            items=(('dae_only', "DAE only", ""),
+                   ('dae_textures', "DAE and textures", ""),
+                   ('kmz', "KMZ with textures", ""),
+                   ),
+            default='dae_only',
+            )
+
+    axis_up = EnumProperty(
+            name="Up",
+            items=(('X', "X Up", ""),
+                   ('Y', "Y Up", ""),
+                   ('Z', "Z Up", ""),
+                   ('-X', "-X Up", ""),
+                   ('-Y', "-Y Up", ""),
+                   ('-Z', "-Z Up", ""),
+                   ),
+            default='Z',
+            )
+
+    use_selection = BoolProperty(
+            name="Selection Only",
+            description="Export selected objects only",
+            default=False,
+            )
+
+    def execute(self, context):
+        from . import export_collada
+        kwargs = self.as_keywords(ignore=('filter_glob',))
+        if os.path.exists(self.filepath) and \
+                not os.path.isfile(self.filepath):
+            self.report({'ERROR'}, "COLLADA export failed, not a file " + \
+                    kwargs['filepath'])
+            return {'CANCELLED'}
+        return export_collada.save(self, context, **kwargs)
+
+
 def menu_func_import(self, context):
     self.layout.operator(IMPORT_OT_collada.bl_idname,
-            text="COLLADA (py) (.dae)")
+            text="COLLADA (py) (.dae, .kmz)")
+
+def menu_func_export(self, context):
+    self.layout.operator(EXPORT_OT_collada.bl_idname,
+            text="COLLADA (py) (.dae, .kmz)")
 
 
 def register():
     bpy.utils.register_module(__name__)
     bpy.types.INFO_MT_file_import.append(menu_func_import)
+    bpy.types.INFO_MT_file_export.append(menu_func_export)
 
 
 def unregister():
     bpy.utils.unregister_module(__name__)
     bpy.types.INFO_MT_file_import.remove(menu_func_import)
+    bpy.types.INFO_MT_file_export.remove(menu_func_export)
 
 
 if __name__ == '__main__':
