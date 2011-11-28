@@ -95,9 +95,13 @@ class ColladaExport(object):
         indices = np.array([i for v in [
             (v, v) for f in b_mesh.faces for v in f.vertices]
             for i in v])
-        triset = geom.createTriangleSet(indices, ilist, 'none')
+        if _is_trimesh(b_mesh):
+            p = geom.createTriangleSet(indices, ilist, 'none')
+        else:
+            vcount = [len(f.vertices) for f in b_mesh.faces]
+            p = geom.createPolylist(indices, vcount, ilist, 'none')
 
-        geom.primitives.append(triset)
+        geom.primitives.append(p)
         self._collada.geometries.append(geom)
         return geom
 
