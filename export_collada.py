@@ -83,25 +83,55 @@ class ColladaExport(object):
         vert_f = [c for v in b_mesh.vertices for c in v.co]
         vert_src = FloatSource(vert_srcid, np.array(vert_f), ('X', 'Y', 'Z'))
 
-        norm_srcid = b_mesh.name + '-normary'
-        norm_f = [c for v in b_mesh.vertices for c in v.normal]
-        norm_src = FloatSource(norm_srcid, np.array(norm_f), ('X', 'Y', 'Z'))
+        sources = [vert_src]
+
+        smooth = list(filter(lambda f: f.use_smooth, b_mesh.faces))
+        if any(smooth):
+            vnorm_srcid = b_mesh.name + '-vnormary'
+            norm_f = [c for v in b_mesh.vertices for c in v.normal]
+            norm_src = FloatSource(vnorm_srcid, np.array(norm_f), ('X', 'Y', 'Z'))
+            sources.append(norm_src)
+        flat = list(filter(lambda f: not f.use_smooth, b_mesh.faces))
+        if any(flat):
+            fnorm_srcid = b_mesh.name + '-fnormary'
+            norm_f = [c for f in flat for c in f.normal]
+            norm_src = FloatSource(fnorm_srcid, np.array(norm_f), ('X', 'Y', 'Z'))
+            sources.append(norm_src)
 
         name = b_mesh.name + '-geom'
-        geom = Geometry(self._collada, name, name, [vert_src, norm_src])
-        ilist = InputList()
-        ilist.addInput(0, 'VERTEX', _url(vert_srcid))
-        ilist.addInput(1, 'NORMAL', _url(norm_srcid))
-        indices = np.array([i for v in [
-            (v, v) for f in b_mesh.faces for v in f.vertices]
-            for i in v])
-        if _is_trimesh(b_mesh):
-            p = geom.createTriangleSet(indices, ilist, 'none')
-        else:
-            vcount = [len(f.vertices) for f in b_mesh.faces]
-            p = geom.createPolylist(indices, vcount, ilist, 'none')
+        geom = Geometry(self._collada, name, name, sources)
 
-        geom.primitives.append(p)
+        if any(smooth):
+            ilist = InputList()
+            ilist.addInput(0, 'VERTEX', _url(vert_srcid))
+            ilist.addInput(1, 'NORMAL', _url(vnorm_srcid))
+            indices = np.array([i for v in [
+                (v, v) for f in smooth for v in f.vertices]
+                for i in v])
+            if _is_trimesh(smooth):
+                p = geom.createTriangleSet(indices, ilist, 'none')
+            else:
+                vcount = [len(f.vertices) for f in smooth]
+                p = geom.createPolylist(indices, vcount, ilist, 'none')
+            geom.primitives.append(p)
+        if any(flat):
+            ilist = InputList()
+            ilist.addInput(0, 'VERTEX', _url(vert_srcid))
+            ilist.addInput(1, 'NORMAL', _url(fnorm_srcid))
+            indices = []
+            for i, f in enumerate(flat):
+                for v in f.vertices:
+                    indices.extend([v, i])
+            indices = np.array(indices)
+            if _is_trimesh(flat):
+                p = geom.createTriangleSet(indices, ilist, 'none')
+            else:
+                vcount = [len(f.vertices) for f in flat]
+                p = geom.createPolylist(indices, vcount, ilist, 'none')
+            geom.primitives.append(p)
+
+        print('exported %d smooth and %d flat' % (len(smooth), len(flat)))
+
         self._collada.geometries.append(geom)
         return geom
 
@@ -111,8 +141,8 @@ class ColladaExport(object):
             [e for r in f for e in r], dtype=np.float32))
 
 
-def _is_trimesh(b_mesh):
-    return all([len(f.vertices) == 3 for f in b_mesh.faces])
+def _is_trimesh(faces):
+    return all([len(f.vertices) == 3 for f in faces])
 
 def _url(uid):
     return '#' + uid
