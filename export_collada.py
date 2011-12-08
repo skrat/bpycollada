@@ -3,9 +3,11 @@ import numpy as np
 from mathutils import Matrix, Vector
 
 from collada import Collada
+from collada.common import tag
 from collada.geometry import Geometry
+from collada.material import Effect, Material
 from collada.scene import Node, Scene
-from collada.scene import GeometryNode
+from collada.scene import GeometryNode, MaterialNode
 from collada.scene import MatrixTransform
 from collada.source import FloatSource, InputList
 
@@ -31,6 +33,7 @@ class ColladaExport(object):
         self._dir = directory
         self._export_as = export_as
         self._geometries = {}
+        self._materials = {}
         self._collada = Collada()
 
         self._scene = Scene('main', [])
@@ -61,7 +64,7 @@ class ColladaExport(object):
 
         inode_meth = getattr(self, 'obj_' + b_obj.type, None)
         if inode_meth:
-            node.children.append(inode_meth(b_obj))
+            node.children.extend(inode_meth(b_obj))
 
     def node(self, b_name, b_matrix=None):
         tf = []
@@ -76,7 +79,14 @@ class ColladaExport(object):
         if not geom:
             geom = self.mesh(b_obj.data)
             self._geometries[b_obj.data.name] = geom
-        return GeometryNode(geom, [])
+        matnodes = []
+        for slot in b_obj.material_slots:
+            sname = slot.material.name
+            if sname not in self._materials:
+                self._materials[sname] = self.material(slot.material)
+            matnodes.append(MaterialNode('none', self._materials[sname],
+                inputs=[]))
+        return [GeometryNode(geom, matnodes)]
 
     def mesh(self, b_mesh):
         vert_srcid = b_mesh.name + '-vertary'
@@ -105,9 +115,11 @@ class ColladaExport(object):
             ilist = InputList()
             ilist.addInput(0, 'VERTEX', _url(vert_srcid))
             ilist.addInput(1, 'NORMAL', _url(vnorm_srcid))
-            indices = np.array([i for v in [
-                (v, v) for f in smooth for v in f.vertices]
-                for i in v])
+            # per vertex normals
+            indices = np.array([
+                i for v in [
+                    (v, v) for f in smooth for v in f.vertices
+                ] for i in v])
             if _is_trimesh(smooth):
                 p = geom.createTriangleSet(indices, ilist, 'none')
             else:
@@ -119,6 +131,7 @@ class ColladaExport(object):
             ilist.addInput(0, 'VERTEX', _url(vert_srcid))
             ilist.addInput(1, 'NORMAL', _url(fnorm_srcid))
             indices = []
+            # per face normals
             for i, f in enumerate(flat):
                 for v in f.vertices:
                     indices.extend([v, i])
@@ -130,10 +143,37 @@ class ColladaExport(object):
                 p = geom.createPolylist(indices, vcount, ilist, 'none')
             geom.primitives.append(p)
 
-        print('exported %d smooth and %d flat' % (len(smooth), len(flat)))
-
         self._collada.geometries.append(geom)
         return geom
+
+    def material(self, b_mat):
+        shader = 'lambert'
+        if b_mat.specular_shader == 'PHONG':
+            shader = 'phong'
+        elif b_mat.specular_shader == 'BLINN':
+            shader = 'blinn'
+        if b_mat.use_shadeless:
+            shader = 'constant'
+        child = {
+            'ambient': (b_mat.ambient,) * 3,
+            'emission': (b_mat.emit,) * 3,
+            'diffuse': tuple(b_mat.diffuse_color),
+        }
+        if b_mat.use_transparency:
+            child.update({
+                'transparent': (0.,0.,0.),
+                'transparency': b_mat.alpha,
+                })
+        if b_mat.raytrace_mirror.use:
+            child.update({
+                'reflective': tuple(b_mat.mirror_color),
+                'reflectivity': b_mat.raytrace_mirror.reflect_factor,
+                })
+        effect = Effect(b_mat.name + '-fx', [], shader, **child)
+        mat = Material(b_mat.name, b_mat.name, effect)
+        self._collada.effects.append(effect)
+        self._collada.materials.append(mat)
+        return mat
 
     def matrix(self, b_matrix):
         f = tuple(map(tuple, b_matrix.transposed()))

@@ -324,8 +324,8 @@ class SketchUpImport(ColladaImport):
 
     def rendering_reflectivity(self, effect, b_mat):
         """ There are no reflectivity controls in SketchUp """
-        if not self.__class__.test2(effect.xmlnode.find(
-                'dae:profile_COMMON', namespaces=DAE_NS)):
+        xml = self._collada.xmlnode
+        if not self.__class__.test1(xml):
             ColladaImport.rendering_reflectivity(self, effect, b_mat)
 
     @classmethod
