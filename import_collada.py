@@ -26,7 +26,7 @@ def load(op, ctx, filepath=None, **kwargs):
     impclass = get_import(c)
     imp = impclass(ctx, c, os.path.dirname(filepath), **kwargs)
 
-    modifiers = ['EDGE_SPLIT']
+    modifiers = []
 
     for obj in c.scene.objects('geometry'):
         imp.geometry(obj, modifiers)
