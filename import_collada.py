@@ -9,6 +9,7 @@ from bpy_extras.image_utils import load_image
 from collada import Collada
 from collada.camera import PerspectiveCamera, OrthographicCamera
 from collada.common import DaeError, DaeBrokenRefError
+from collada.light import AmbientLight, DirectionalLight, PointLight, SpotLight
 from collada.material import Map
 from collada.triangleset import TriangleSet
 from collada.polylist import Polylist
@@ -30,6 +31,9 @@ def load(op, ctx, filepath=None, **kwargs):
 
     for obj in c.scene.objects('geometry'):
         imp.geometry(obj, modifiers)
+
+    for i, obj in enumerate(c.scene.objects('light')):
+        imp.light(obj, i)
 
     for obj in c.scene.objects('camera'):
         imp.camera(obj)
@@ -57,7 +61,7 @@ class ColladaImport(object):
         bpy.ops.object.add(type='CAMERA')
         b_obj = self._ctx.object
         b_obj.name = self.name(bcam.original, id(bcam))
-        b_obj.matrix_world = _transposed(bcam.matrix)
+        b_obj.matrix_world = _matrix(bcam.matrix)
         b_cam = b_obj.data
         if isinstance(bcam.original, PerspectiveCamera):
             b_cam.type = 'PERSP'
@@ -85,7 +89,6 @@ class ColladaImport(object):
             b_materials[sym] = bpy.data.materials[b_matname]
 
         for i, p in enumerate(bgeom.original.primitives):
-            b_obj = None
             b_mat = b_materials.get(p.material, None)
             b_meshname = self.name(bgeom.original, i)
             if isinstance(p, TriangleSet):
@@ -101,7 +104,7 @@ class ColladaImport(object):
 
             self._ctx.scene.objects.link(b_obj)
             self._ctx.scene.objects.active = b_obj
-            b_obj.matrix_world = _transposed(bgeom.matrix)
+            b_obj.matrix_world = _matrix(bgeom.matrix)
             bpy.ops.object.material_slot_add()
             b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
@@ -112,7 +115,6 @@ class ColladaImport(object):
                     bpy.context.object.modifiers.new(type=modifier, name=name)
 
     def geometry_triangleset(self, triset, b_name, b_mat):
-        b_mesh = None
         if b_name in bpy.data.meshes:
             b_mesh = bpy.data.meshes[b_name]
         else:
@@ -127,7 +129,6 @@ class ColladaImport(object):
                 b_mesh.vertices[vidx].co = vertex
 
             # eekadoodle
-            eekadoodle_faces = []
             eekadoodle_faces = [v
                     for f in triset.vertex_index
                     for v in _eekadoodle_face(*f)]
@@ -154,6 +155,21 @@ class ColladaImport(object):
         b_obj = bpy.data.objects.new(b_name, b_mesh)
         b_obj.data = b_mesh
         return b_obj
+
+    def light(self, light, i):
+        if isinstance(light.original, AmbientLight):
+            return
+        b_name = self.name(light.original, i)
+        if b_name not in bpy.data.lamps:
+            if isinstance(light.original, DirectionalLight):
+                b_lamp = bpy.data.lamps.new(b_name, type='SUN')
+            elif isinstance(light.original, PointLight):
+                b_lamp = bpy.data.lamps.new(b_name, type='POINT')
+                b_obj = bpy.data.objects.new(b_name, b_lamp)
+                self._ctx.scene.objects.link(b_obj)
+                b_obj.matrix_world = Matrix.Translation(light.position)
+            elif isinstance(light.original, SpotLight):
+                b_lamp = bpy.data.lamps.new(b_name, type='SPOT')
 
     def material(self, mat, b_name):
         effect = mat.effect
@@ -360,9 +376,10 @@ def _is_flat_face(normal):
             return False
     return True
 
-def _transposed(matrix):
+def _matrix(matrix):
     m = Matrix(matrix)
-    m.transpose()
+    if bpy.app.version < (2, 62):
+        m.transpose()
     return m
 
 def _eekadoodle_face(v1, v2, v3):
