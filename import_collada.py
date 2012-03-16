@@ -337,6 +337,9 @@ class SketchUpImport(ColladaImport):
                     tex.use_alpha = True
                     b_mat.use_transparency = True
                     b_mat.alpha = 0.0
+                    if self._kwargs.get('raytrace_transparency', False):
+                        b_mat.transparency_method = 'RAYTRACE'
+                        b_mat.raytrace_transparency.ior = 1.0
 
     def rendering_reflectivity(self, effect, b_mat):
         """ There are no reflectivity controls in SketchUp """
