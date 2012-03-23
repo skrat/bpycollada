@@ -1,10 +1,13 @@
 import os
-import bpy
 import math
 from hashlib import sha1
-from mathutils import Matrix, Vector
-from tempfile import mkdtemp
+from shutil import rmtree
+from tempfile import NamedTemporaryFile
+from contextlib import contextmanager
+
+import bpy
 from bpy_extras.image_utils import load_image
+from mathutils import Matrix, Vector
 
 from collada import Collada
 from collada.camera import PerspectiveCamera, OrthographicCamera
@@ -270,8 +273,8 @@ class ColladaImport(object):
                     image_path))
                 if zp not in self._collada.zfile.namelist():
                     return (1., 0., 0.) # image data not found, mark red
-                mtex = self.try_texture(self._tmpwrite(
-                    zp, self._collada.zfile.open(zp)), b_mat)
+                with self._tmpwrite(zp, self._collada.zfile.open(zp)) as tmp:
+                    mtex = self.try_texture(tmp, b_mat)
             return mtex or (1., 0., 0.)
         elif isinstance(color_or_texture, tuple):
             return color_or_texture[:3]
@@ -281,6 +284,8 @@ class ColladaImport(object):
         if image is None:
             image = load_image(path, self._basedir)
         if image is not None:
+            image.pack(True)
+            image.reload()
             texture = bpy.data.textures.new(name='Kd', type='IMAGE')
             texture.image = image
             mtex = b_mat.texture_slots.add()
@@ -295,21 +300,12 @@ class ColladaImport(object):
         return base[:10] + sha1(base.encode('utf-8')
                 ).hexdigest()[:10]
 
-    @property
-    def _tmpdir(self):
-        if hasattr(self, '__tmpdir'):
-            return self.__tmpdir
-        self.__tmpdir = mkdtemp()
-        return self.__tmpdir
-
+    @contextmanager
     def _tmpwrite(self, relpath, fp):
-        p = os.path.join(self._tmpdir, relpath)
-        leaf = os.path.dirname(p)
-        if not os.path.exists(leaf):
-            os.makedirs(leaf)
-        with open(p, 'wb') as out:
+        with NamedTemporaryFile(suffix='.' + relpath.split('.')[-1]) as out:
             out.write(fp.read())
-        return p
+            out.flush()
+            yield out.name
 
 
 class SketchUpImport(ColladaImport):
