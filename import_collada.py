@@ -265,35 +265,26 @@ class ColladaImport(object):
 
     def color_or_texture(self, color_or_texture, b_mat):
         if isinstance(color_or_texture, Map):
-            image_path = color_or_texture.sampler.surface.image.path
-            mtex = self.try_texture(image_path, b_mat)
-            if not mtex and self._collada.zfile:
-                zp = os.path.normpath(os.path.join(
-                    os.path.dirname(self._collada.filename),
-                    image_path))
-                if zp not in self._collada.zfile.namelist():
-                    return (1., 0., 0.) # image data not found, mark red
-                with self._tmpwrite(zp, self._collada.zfile.open(zp)) as tmp:
-                    mtex = self.try_texture(tmp, b_mat)
+            image = color_or_texture.sampler.surface.image
+            mtex = self.try_texture(image, b_mat)
             return mtex or (1., 0., 0.)
         elif isinstance(color_or_texture, tuple):
             return color_or_texture[:3]
 
-    def try_texture(self, path, b_mat):
-        image = load_image(path)
-        if image is None:
-            image = load_image(path, self._basedir)
-        if image is not None:
-            image.pack(True)
-            image.reload()
-            texture = bpy.data.textures.new(name='Kd', type='IMAGE')
-            texture.image = image
-            mtex = b_mat.texture_slots.add()
-            mtex.texture_coords = 'UV'
-            mtex.texture = texture
-            self._images[b_mat.name] = image
-            return mtex
-        return None
+    def try_texture(self, c_image, b_mat):
+        mtex = None
+        with self._tmpwrite(c_image.path, c_image.data) as tmp:
+            image = load_image(tmp)
+            if image is not None:
+                image.pack(True)
+
+                texture = bpy.data.textures.new(name='Kd', type='IMAGE')
+                texture.image = image
+                mtex = b_mat.texture_slots.add()
+                mtex.texture_coords = 'UV'
+                mtex.texture = texture
+                self._images[b_mat.name] = image
+        return mtex
 
     def name(self, obj, index=0):
         base = ('%s-%d' % (obj.id, index))
@@ -301,9 +292,9 @@ class ColladaImport(object):
                 ).hexdigest()[:10]
 
     @contextmanager
-    def _tmpwrite(self, relpath, fp):
+    def _tmpwrite(self, relpath, data):
         with NamedTemporaryFile(suffix='.' + relpath.split('.')[-1]) as out:
-            out.write(fp.read())
+            out.write(data)
             out.flush()
             yield out.name
 
