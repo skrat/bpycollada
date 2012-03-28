@@ -1,6 +1,5 @@
 import os
 import math
-from hashlib import sha1
 from shutil import rmtree
 from tempfile import NamedTemporaryFile
 from contextlib import contextmanager
@@ -30,10 +29,8 @@ def load(op, ctx, filepath=None, **kwargs):
     impclass = get_import(c)
     imp = impclass(ctx, c, os.path.dirname(filepath), **kwargs)
 
-    modifiers = []
-
     for obj in c.scene.objects('geometry'):
-        imp.geometry(obj, modifiers)
+        imp.geometry(obj)
 
     for i, obj in enumerate(c.scene.objects('light')):
         imp.light(obj, i)
@@ -56,9 +53,10 @@ class ColladaImport(object):
     def __init__(self, ctx, collada, basedir, **kwargs):
         self._ctx = ctx
         self._collada = collada
-        self._basedir = basedir
         self._kwargs = kwargs
         self._images = {}
+        self._namecount = 0
+        self._names = {}
 
     def camera(self, bcam):
         bpy.ops.object.add(type='CAMERA')
@@ -82,7 +80,7 @@ class ColladaImport(object):
         if bcam.zfar:
             b_cam.clip_end = bcam.zfar
 
-    def geometry(self, bgeom, modifiers=None):
+    def geometry(self, bgeom):
         b_materials = {}
         for sym, matnode in bgeom.materialnodebysymbol.items():
             mat = matnode.target
@@ -94,6 +92,7 @@ class ColladaImport(object):
         for i, p in enumerate(bgeom.original.primitives):
             b_mat = b_materials.get(p.material, None)
             b_meshname = self.name(bgeom.original, i)
+
             if isinstance(p, TriangleSet):
                 b_obj = self.geometry_triangleset(
                         p, b_meshname, b_mat)
@@ -108,14 +107,10 @@ class ColladaImport(object):
             self._ctx.scene.objects.link(b_obj)
             self._ctx.scene.objects.active = b_obj
             b_obj.matrix_world = _matrix(bgeom.matrix)
+
             bpy.ops.object.material_slot_add()
             b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
-
-            if isinstance(modifiers, list):
-                for modifier in modifiers:
-                    name = "%s_%s" % (modifier, b_obj.name)
-                    bpy.context.object.modifiers.new(type=modifier, name=name)
 
     def geometry_triangleset(self, triset, b_name, b_mat):
         if b_name in bpy.data.meshes:
@@ -287,9 +282,11 @@ class ColladaImport(object):
         return mtex
 
     def name(self, obj, index=0):
-        base = ('%s-%d' % (obj.id, index))
-        return base[:10] + sha1(base.encode('utf-8')
-                ).hexdigest()[:10]
+        base = '%s-%d' % (obj.id, index)
+        if base not in self._names:
+            self._namecount += 1
+            self._names[base] = '%s-%.4d' % (base[:27], self._namecount)
+        return self._names[base]
 
     @contextmanager
     def _tmpwrite(self, relpath, data):
@@ -374,4 +371,3 @@ def _matrix(matrix):
 
 def _eekadoodle_face(v1, v2, v3):
     return v3 == 0 and (v3, v1, v2, 0) or (v1, v2, v3, 0)
-
