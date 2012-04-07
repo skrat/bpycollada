@@ -14,6 +14,7 @@ from collada.common import DaeError, DaeBrokenRefError
 from collada.light import AmbientLight, DirectionalLight, PointLight, SpotLight
 from collada.material import Map
 from collada.polylist import Polylist, BoundPolylist
+from collada.primitive import BoundPrimitive
 from collada.scene import Scene, Node, NodeNode, GeometryNode
 from collada.triangleset import TriangleSet, BoundTriangleSet
 
@@ -99,12 +100,16 @@ class ColladaImport(object):
             b_materials[sym] = bpy.data.materials[b_matname]
 
         primitives = bgeom.original.primitives
-        if self._kwargs['transformation'] == 'APPLY':
+        if self._is_apply():
             primitives = bgeom.primitives()
 
         b_geoms = []
         for i, p in enumerate(primitives):
-            b_mat = b_materials.get(p.material, None)
+            if isinstance(p, BoundPrimitive):
+                b_mat_key = p.original.material
+            else:
+                b_mat_key = p.material
+            b_mat = b_materials.get(b_mat_key, None)
             b_meshname = self.name(bgeom.original, i)
 
             if isinstance(p, (TriangleSet, BoundTriangleSet)):
@@ -125,13 +130,18 @@ class ColladaImport(object):
             b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
 
+            if self._is_apply():
+                # TODO import normals
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.normals_make_consistent()
+                bpy.ops.object.mode_set(mode='OBJECT')
+
             b_geoms.append(b_obj)
 
         return b_geoms
 
     def geometry_triangleset(self, triset, b_name, b_mat):
-        if self._kwargs['transformation'] != 'APPLY' and \
-                b_name in bpy.data.meshes:
+        if not self._is_apply() and b_name in bpy.data.meshes:
             # with applied transformation, mesh reuse is not possible
             b_mesh = bpy.data.meshes[b_name]
         else:
@@ -155,6 +165,7 @@ class ColladaImport(object):
             has_uv = (len(triset.texcoord_indexset) > 0)
 
             if has_normal:
+                # TODO import normals
                 for i, f in enumerate(b_mesh.faces):
                     f.use_smooth = not _is_flat_face(
                             triset.normal[triset.normal_index[i]])
@@ -318,15 +329,21 @@ class ColladaImport(object):
         return mtex
 
     def name(self, obj, index=0):
+        """ Trying to get efficient and human readable name, workarounds
+        Blender's object name limitations.
+        """
         if hasattr(obj, 'id'):
-            uid = obj.id
+            uid = obj.id.replace('material', 'm')
         else:
             self._namecount += 1
             uid = 'Untitled.' + str(self._namecount)
         base = '%s-%d' % (uid, index)
+        base_len = 27
+        if bpy.app.version < (2, 62):
+            base_len = 16
         if base not in self._names:
             self._namecount += 1
-            self._names[base] = '%s-%.4d' % (base[:27], self._namecount)
+            self._names[base] = '%s-%.4d' % (base[:base_len], self._namecount)
         return self._names[base]
 
     @contextmanager
@@ -335,6 +352,9 @@ class ColladaImport(object):
             out.write(data)
             out.flush()
             yield out.name
+
+    def _is_apply(self):
+        return self._kwargs['transformation'] == 'APPLY'
 
 
 class SketchUpImport(ColladaImport):
