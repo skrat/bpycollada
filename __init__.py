@@ -80,6 +80,16 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
             description="Raytrace transparent materials",
             )
 
+    transformation = EnumProperty(
+            name="Transformations",
+            items=(
+                ('MUL',     "Multiply", ""),
+                ('PARENT',  "Parenting", ""),
+                ('APPLY',   "Apply", ""),
+                ),
+            default='MUL'
+            )
+
     def execute(self, context):
         from . import import_collada
         kwargs = self.as_keywords(ignore=('filter_glob', 'files'))

@@ -13,8 +13,9 @@ from collada.camera import PerspectiveCamera, OrthographicCamera
 from collada.common import DaeError, DaeBrokenRefError
 from collada.light import AmbientLight, DirectionalLight, PointLight, SpotLight
 from collada.material import Map
-from collada.triangleset import TriangleSet
-from collada.polylist import Polylist
+from collada.polylist import Polylist, BoundPolylist
+from collada.scene import Scene, Node, NodeNode, GeometryNode
+from collada.triangleset import TriangleSet, BoundTriangleSet
 
 
 __all__ = ['load']
@@ -29,8 +30,16 @@ def load(op, ctx, filepath=None, **kwargs):
     impclass = get_import(c)
     imp = impclass(ctx, c, os.path.dirname(filepath), **kwargs)
 
-    for obj in c.scene.objects('geometry'):
-        imp.geometry(obj)
+    tf = kwargs['transformation']
+    if tf in ('MUL', 'APPLY'):
+        for i, obj in enumerate(c.scene.objects('geometry')):
+            b_geoms = imp.geometry(obj)
+            if tf == 'MUL':
+                tf_mat = _matrix(obj.matrix)
+                for b_obj in b_geoms:
+                    b_obj.matrix_world = tf_mat
+    elif tf == 'PARENT':
+        _dfs(c.scene, imp.node)
 
     for i, obj in enumerate(c.scene.objects('light')):
         imp.light(obj, i)
@@ -86,17 +95,22 @@ class ColladaImport(object):
             mat = matnode.target
             b_matname = self.name(mat)
             if b_matname not in bpy.data.materials:
-                self.material(mat, b_matname)
+                b_matname = self.material(mat, b_matname)
             b_materials[sym] = bpy.data.materials[b_matname]
 
-        for i, p in enumerate(bgeom.original.primitives):
+        primitives = bgeom.original.primitives
+        if self._kwargs['transformation'] == 'APPLY':
+            primitives = bgeom.primitives()
+
+        b_geoms = []
+        for i, p in enumerate(primitives):
             b_mat = b_materials.get(p.material, None)
             b_meshname = self.name(bgeom.original, i)
 
-            if isinstance(p, TriangleSet):
+            if isinstance(p, (TriangleSet, BoundTriangleSet)):
                 b_obj = self.geometry_triangleset(
                         p, b_meshname, b_mat)
-            elif isinstance(p, Polylist):
+            elif isinstance(p, (Polylist, BoundPolylist)):
                 b_obj = self.geometry_triangleset(
                         p.triangleset(), b_meshname, b_mat)
             else:
@@ -106,14 +120,19 @@ class ColladaImport(object):
 
             self._ctx.scene.objects.link(b_obj)
             self._ctx.scene.objects.active = b_obj
-            b_obj.matrix_world = _matrix(bgeom.matrix)
 
             bpy.ops.object.material_slot_add()
             b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
 
+            b_geoms.append(b_obj)
+
+        return b_geoms
+
     def geometry_triangleset(self, triset, b_name, b_mat):
-        if b_name in bpy.data.meshes:
+        if self._kwargs['transformation'] != 'APPLY' and \
+                b_name in bpy.data.meshes:
+            # with applied transformation, mesh reuse is not possible
             b_mesh = bpy.data.meshes[b_name]
         else:
             if triset.vertex_index is None or \
@@ -172,6 +191,7 @@ class ColladaImport(object):
     def material(self, mat, b_name):
         effect = mat.effect
         b_mat = bpy.data.materials.new(b_name)
+        b_name = b_mat.name
         b_mat.diffuse_shader = 'LAMBERT'
         getattr(self, 'rendering_' + \
                 effect.shadingtype)(mat, b_mat)
@@ -181,6 +201,22 @@ class ColladaImport(object):
             b_mat.emit = sum(effect.emission[:3]) / 3.0
         self.rendering_transparency(effect, b_mat)
         self.rendering_reflectivity(effect, b_mat)
+        return b_name
+
+    def node(self, node, parent):
+        if isinstance(node, (Node, NodeNode)):
+            b_obj = bpy.data.objects.new(self.name(node), None)
+            b_obj.matrix_world = _matrix(node.matrix)
+            self._ctx.scene.objects.link(b_obj)
+            if parent:
+                b_obj.parent = parent
+            parent = b_obj
+        elif isinstance(node, GeometryNode):
+            for bgeom in node.objects('geometry'):
+                b_geoms = self.geometry(bgeom)
+                for b_obj in b_geoms:
+                    b_obj.parent = parent
+        return parent
 
     def rendering_blinn(self, mat, b_mat):
         effect = mat.effect
@@ -282,7 +318,12 @@ class ColladaImport(object):
         return mtex
 
     def name(self, obj, index=0):
-        base = '%s-%d' % (obj.id, index)
+        if hasattr(obj, 'id'):
+            uid = obj.id
+        else:
+            self._namecount += 1
+            uid = 'Untitled.' + str(self._namecount)
+        base = '%s-%d' % (uid, index)
         if base not in self._names:
             self._namecount += 1
             self._names[base] = '%s-%.4d' % (base[:27], self._namecount)
@@ -371,3 +412,24 @@ def _matrix(matrix):
 
 def _eekadoodle_face(v1, v2, v3):
     return v3 == 0 and (v3, v1, v2, 0) or (v1, v2, v3, 0)
+
+def _children(node):
+    if isinstance(node, Scene):
+        return node.nodes
+    elif isinstance(node, Node):
+        return node.children
+    elif isinstance(node, NodeNode):
+        return node.node.children
+    else:
+        return []
+
+def _dfs(node, cb, parent=None):
+    """ Depth first search taking a callback function.
+    Its return value will be passed recursively as a parent argument.
+
+    :param node: COLLADA node
+    :param callable cb:
+     """
+    parent = cb(node, parent)
+    for child in _children(node):
+        _dfs(child, cb, parent)
