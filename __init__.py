@@ -91,7 +91,10 @@ class IMPORT_OT_collada(bpy.types.Operator, ImportHelper):
             )
 
     def execute(self, context):
-        from . import import_collada
+        if 'import_collada' in locals():
+            reload(import_collada)
+        else:
+            from . import import_collada
         kwargs = self.as_keywords(ignore=('filter_glob', 'files'))
         if not os.path.isfile(kwargs['filepath']):
             self.report({'ERROR'}, "COLLADA import failed, not a file " + \

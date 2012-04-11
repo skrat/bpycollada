@@ -8,6 +8,7 @@ import bpy
 from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Vector
 
+import numpy as np
 from collada import Collada
 from collada.camera import PerspectiveCamera, OrthographicCamera
 from collada.common import DaeError, DaeBrokenRefError
@@ -130,12 +131,6 @@ class ColladaImport(object):
             b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
 
-            if self._is_apply():
-                # TODO import normals
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.normals_make_consistent()
-                bpy.ops.object.mode_set(mode='OBJECT')
-
             b_geoms.append(b_obj)
 
         return b_geoms
@@ -149,6 +144,9 @@ class ColladaImport(object):
                     not len(triset.vertex_index):
                 return
 
+            has_normal = (triset.normal_index is not None)
+            has_uv = (len(triset.texcoord_indexset) > 0)
+
             b_mesh = bpy.data.meshes.new(b_name)
             b_mesh.vertices.add(len(triset.vertex))
             b_mesh.faces.add(len(triset.vertex_index))
@@ -161,14 +159,14 @@ class ColladaImport(object):
                     for v in _eekadoodle_face(*f)]
             b_mesh.faces.foreach_set('vertices_raw', eekadoodle_faces)
 
-            has_normal = (triset.normal_index is not None)
-            has_uv = (len(triset.texcoord_indexset) > 0)
-
             if has_normal:
                 # TODO import normals
                 for i, f in enumerate(b_mesh.faces):
-                    f.use_smooth = not _is_flat_face(
-                            triset.normal[triset.normal_index[i]])
+                    bef = f.normal
+                    f.normal = tuple(np.mean(triset.normal[triset.normal_index[i]], axis=0))
+                    print(bef, f.normal)
+                    # f.use_smooth = not _is_flat_face(
+                    #         triset.normal[triset.normal_index[i]])
             if has_uv:
                 for j in range(len(triset.texcoord_indexset)):
                     self.texcoord_layer(
