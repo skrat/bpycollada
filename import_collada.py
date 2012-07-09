@@ -24,6 +24,7 @@ __all__ = ['load']
 VENDOR_SPECIFIC = []
 COLLADA_NS = 'http://www.collada.org/2005/11/COLLADASchema'
 DAE_NS = {'dae': COLLADA_NS}
+TRANSPARENCY_DEPTH = 8
 
 
 def load(op, ctx, filepath=None, **kwargs):
@@ -287,9 +288,11 @@ class ColladaImport(object):
         if self._kwargs.get('raytrace_transparency', False):
             b_mat.transparency_method = 'RAYTRACE'
             b_mat.raytrace_transparency.ior = 1.0
+            b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
         if isinstance(effect.index_of_refraction, float):
             b_mat.transparency_method = 'RAYTRACE'
             b_mat.raytrace_transparency.ior = effect.index_of_refraction
+            b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
 
     def texcoord_layer(self, triset, texcoord, index, b_mesh, b_mat):
         b_mesh.uv_textures.new()
@@ -385,6 +388,10 @@ class SketchUpImport(ColladaImport):
                     if self._kwargs.get('raytrace_transparency', False):
                         b_mat.transparency_method = 'RAYTRACE'
                         b_mat.raytrace_transparency.ior = 1.0
+                        b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
+
+    def rendering_phong(self, mat, b_mat):
+        super().rendering_lambert(mat, b_mat)
 
     def rendering_reflectivity(self, effect, b_mat):
         """ There are no reflectivity controls in SketchUp """
@@ -398,8 +405,8 @@ class SketchUpImport(ColladaImport):
 
     @classmethod
     def test1(cls, xml):
-        src = [ xml.find('.//dae:instance_visual_scene',
-                    namespaces=DAE_NS).get('url') ]
+        src = [xml.find('.//dae:instance_visual_scene',
+                    namespaces=DAE_NS).get('url')]
         at = xml.find('.//dae:authoring_tool', namespaces=DAE_NS)
         if at is not None:
             src.append(at.text)
@@ -424,14 +431,17 @@ def _is_flat_face(normal):
             return False
     return True
 
+
 def _matrix(matrix):
     m = Matrix(matrix)
     if bpy.app.version < (2, 62):
         m.transpose()
     return m
 
+
 def _eekadoodle_face(v1, v2, v3):
     return v3 == 0 and (v3, v1, v2, 0) or (v1, v2, v3, 0)
+
 
 def _children(node):
     if isinstance(node, Scene):
@@ -442,6 +452,7 @@ def _children(node):
         return node.node.children
     else:
         return []
+
 
 def _dfs(node, cb, parent=None):
     """ Depth first search taking a callback function.
