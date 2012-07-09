@@ -1,6 +1,5 @@
 import os
 import math
-from shutil import rmtree
 from tempfile import NamedTemporaryFile
 from contextlib import contextmanager
 
@@ -8,7 +7,6 @@ import bpy
 from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Vector
 
-import numpy as np
 from collada import Collada
 from collada.camera import PerspectiveCamera, OrthographicCamera
 from collada.common import DaeError, DaeBrokenRefError
@@ -25,6 +23,7 @@ __all__ = ['load']
 VENDOR_SPECIFIC = []
 COLLADA_NS = 'http://www.collada.org/2005/11/COLLADASchema'
 DAE_NS = {'dae': COLLADA_NS}
+TRANSPARENCY_DEPTH = 8
 
 
 def load(op, ctx, filepath=None, **kwargs):
@@ -153,20 +152,18 @@ class ColladaImport(object):
             for vidx, vertex in enumerate(triset.vertex):
                 b_mesh.vertices[vidx].co = vertex
 
-            # eekadoodle
-            eekadoodle_faces = [v
-                    for f in triset.vertex_index
-                    for v in _eekadoodle_face(*f)]
-            b_mesh.faces.foreach_set('vertices_raw', eekadoodle_faces)
+            b_mesh.faces.foreach_set('vertices_raw', [i
+                    for t in triset.vertex_index
+                    for i in _eekadoodle_face(*t)])
 
             if has_normal:
                 # TODO import normals
                 for i, f in enumerate(b_mesh.faces):
-                    bef = f.normal
-                    f.normal = tuple(np.mean(triset.normal[triset.normal_index[i]], axis=0))
-                    print(bef, f.normal)
-                    # f.use_smooth = not _is_flat_face(
-                    #         triset.normal[triset.normal_index[i]])
+                    f.use_smooth = not _is_flat_face(
+                            triset.normal[triset.normal_index[i]])
+                # normals = triset.normal[triset.normal_index].reshape(-1, 3)
+                # for i, v in enumerate(b_mesh.vertices):
+                #     v.normal = normals[i]
             if has_uv:
                 for j in range(len(triset.texcoord_indexset)):
                     self.texcoord_layer(
@@ -285,9 +282,11 @@ class ColladaImport(object):
         if self._kwargs.get('raytrace_transparency', False):
             b_mat.transparency_method = 'RAYTRACE'
             b_mat.raytrace_transparency.ior = 1.0
+            b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
         if isinstance(effect.index_of_refraction, float):
             b_mat.transparency_method = 'RAYTRACE'
             b_mat.raytrace_transparency.ior = effect.index_of_refraction
+            b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
 
     def texcoord_layer(self, triset, texcoord, index, b_mesh, b_mat):
         b_mesh.uv_textures.new()
@@ -383,6 +382,10 @@ class SketchUpImport(ColladaImport):
                     if self._kwargs.get('raytrace_transparency', False):
                         b_mat.transparency_method = 'RAYTRACE'
                         b_mat.raytrace_transparency.ior = 1.0
+                        b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
+
+    def rendering_phong(self, mat, b_mat):
+        super().rendering_lambert(mat, b_mat)
 
     def rendering_reflectivity(self, effect, b_mat):
         """ There are no reflectivity controls in SketchUp """
@@ -396,8 +399,8 @@ class SketchUpImport(ColladaImport):
 
     @classmethod
     def test1(cls, xml):
-        src = [ xml.find('.//dae:instance_visual_scene',
-                    namespaces=DAE_NS).get('url') ]
+        src = [xml.find('.//dae:instance_visual_scene',
+                    namespaces=DAE_NS).get('url')]
         at = xml.find('.//dae:authoring_tool', namespaces=DAE_NS)
         if at is not None:
             src.append(at.text)
@@ -428,9 +431,6 @@ def _matrix(matrix):
         m.transpose()
     return m
 
-def _eekadoodle_face(v1, v2, v3):
-    return v3 == 0 and (v3, v1, v2, 0) or (v1, v2, v3, 0)
-
 def _children(node):
     if isinstance(node, Scene):
         return node.nodes
@@ -451,3 +451,12 @@ def _dfs(node, cb, parent=None):
     parent = cb(node, parent)
     for child in _children(node):
         _dfs(child, cb, parent)
+
+def _chunks(l, n):
+    """ Yield successive n-sized chunks from l.
+    """
+    for i in range(0, len(l), n):
+        yield l[i: i + n]
+
+def _eekadoodle_face(v1, v2, v3):
+    return v3 == 0 and (v3, v1, v2, 0) or (v1, v2, v3, 0)
