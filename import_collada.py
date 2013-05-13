@@ -390,7 +390,10 @@ class SketchUpImport(ColladaImport):
                             break
                     if not diffslot:
                         return
-                    #image.use_premultiply = True
+                    if bpy.app.version < (2, 64, 0):
+                        image.use_premultiply = True
+                    else:
+                        image.use_alpha = True
                     diffslot.use_map_alpha = True
                     tex = diffslot.texture
                     tex.use_mipmap = True
