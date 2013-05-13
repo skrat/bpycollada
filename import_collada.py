@@ -26,6 +26,7 @@ COLLADA_NS = 'http://www.collada.org/2005/11/COLLADASchema'
 DAE_NS = {'dae': COLLADA_NS}
 TRANSPARENCY_DEPTH = 8
 
+BMESH_GT_62 = (bpy.app.version[1] > 62)
 
 def load(op, ctx, filepath=None, **kwargs):
     c = Collada(filepath, ignore=[DaeBrokenRefError])
@@ -77,7 +78,13 @@ class ColladaImport(object):
         b_cam = b_obj.data
         if isinstance(bcam.original, PerspectiveCamera):
             b_cam.type = 'PERSP'
-            b_cam.lens_unit = 'DEGREES'
+            prop = b_cam.bl_rna.properties.get('lens_unit')
+            if 'DEGREES' in prop.enum_items:
+                b_cam.lens_unit = 'DEGREES'
+            elif 'FOV' in prop.enum_items:
+                b_cam.lens_unit = 'FOV'
+            else:
+                b_cam.lens_unit = prop.default
             b_cam.angle = math.radians(max(
                     bcam.xfov or bcam.yfov,
                     bcam.yfov or bcam.xfov))
@@ -149,10 +156,13 @@ class ColladaImport(object):
             if triset.vertex_index is None or \
                     not len(triset.vertex_index):
                 return
-
+            
             b_mesh = bpy.data.meshes.new(b_name)
+            faces = b_mesh.tessfaces if BMESH_GT_62\
+                    else b_mesh.faces
+                    
             b_mesh.vertices.add(len(triset.vertex))
-            b_mesh.faces.add(len(triset.vertex_index))
+            faces.add(len(triset.vertex_index))
             for vidx, vertex in enumerate(triset.vertex):
                 b_mesh.vertices[vidx].co = vertex
 
@@ -160,14 +170,14 @@ class ColladaImport(object):
             eekadoodle_faces = [v
                     for f in triset.vertex_index
                     for v in _eekadoodle_face(*f)]
-            b_mesh.faces.foreach_set('vertices_raw', eekadoodle_faces)
+            faces.foreach_set('vertices_raw', eekadoodle_faces)
 
             has_normal = (triset.normal_index is not None)
             has_uv = (len(triset.texcoord_indexset) > 0)
 
             if has_normal:
                 # TODO import normals
-                for i, f in enumerate(b_mesh.faces):
+                for i, f in enumerate(faces):
                     f.use_smooth = not _is_flat_face(
                             triset.normal[triset.normal_index[i]])
             if has_uv:
@@ -296,9 +306,12 @@ class ColladaImport(object):
 
     def texcoord_layer(self, triset, texcoord, index, b_mesh, b_mat):
         b_mesh.uv_textures.new()
-        for i, f in enumerate(b_mesh.faces):
+        faces = b_mesh.tessfaces if BMESH_GT_62\
+                else b_mesh.faces
+        for i, f in enumerate(faces):
             t1, t2, t3 = index[i]
-            tface = b_mesh.uv_textures[-1].data[i]
+            tface = b_mesh.tessface_uv_textures[-1].data[i] if BMESH_GT_62\
+                    else b_mesh.uv_textures[-1].data[i]
             # eekadoodle
             if triset.vertex_index[i][2] == 0:
                 t1, t2, t3 = t3, t1, t2
@@ -377,7 +390,7 @@ class SketchUpImport(ColladaImport):
                             break
                     if not diffslot:
                         return
-                    image.use_premultiply = True
+                    #image.use_premultiply = True
                     diffslot.use_map_alpha = True
                     tex = diffslot.texture
                     tex.use_mipmap = True
