@@ -5,6 +5,7 @@ from tempfile import NamedTemporaryFile
 from contextlib import contextmanager
 
 import bpy
+from bpy.ops import BPyOpsSubModOp
 from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Vector
 
@@ -34,24 +35,34 @@ def load(op, ctx, filepath=None, **kwargs):
     imp = impclass(ctx, c, os.path.dirname(filepath), **kwargs)
 
     tf = kwargs['transformation']
-    if tf in ('MUL', 'APPLY'):
-        for i, obj in enumerate(c.scene.objects('geometry')):
-            b_geoms = imp.geometry(obj)
-            if tf == 'MUL':
-                tf_mat = _matrix(obj.matrix)
-                for b_obj in b_geoms:
-                    b_obj.matrix_world = tf_mat
-    elif tf == 'PARENT':
-        _dfs(c.scene, imp.node)
 
-    for i, obj in enumerate(c.scene.objects('light')):
-        imp.light(obj, i)
+    with prevented_updates(ctx):
+        if tf in ('MUL', 'APPLY'):
+            for i, obj in enumerate(c.scene.objects('geometry')):
+                b_geoms = imp.geometry(obj)
+                if tf == 'MUL':
+                    tf_mat = _matrix(obj.matrix)
+                    for b_obj in b_geoms:
+                        b_obj.matrix_world = tf_mat
+        elif tf == 'PARENT':
+            _dfs(c.scene, imp.node)
 
-    for obj in c.scene.objects('camera'):
-        imp.camera(obj)
+        for i, obj in enumerate(c.scene.objects('light')):
+            imp.light(obj, i)
+
+        for obj in c.scene.objects('camera'):
+            imp.camera(obj)
 
     return {'FINISHED'}
 
+
+@contextmanager
+def prevented_updates(ctx):
+    scene_update = BPyOpsSubModOp._scene_update
+    setattr(BPyOpsSubModOp, '_scene_update', lambda ctx: None)
+    yield
+    setattr(BPyOpsSubModOp, '_scene_update', scene_update)
+    BPyOpsSubModOp._scene_update(ctx)
 
 def get_import(collada):
     for i in VENDOR_SPECIFIC:
