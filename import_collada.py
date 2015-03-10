@@ -174,19 +174,31 @@ class ColladaImport(object):
                 return
 
             b_mesh = bpy.data.meshes.new(b_name)
-            b_mesh.vertices.add(len(triset.vertex))
+            b_mesh.vertices.add(len(triset.vertex_index) * 3)
             b_mesh.tessfaces.add(len(triset))
 
-            for i, vertex in enumerate(triset.vertex):
-                b_mesh.vertices[i].co = vertex
+            count = 0
+            for i, f in enumerate(b_mesh.tessfaces):
+                f.vertices[0] = count
+                f.vertices[1] = count + 1
+                f.vertices[2] = count + 2
+                b_mesh.vertices[f.vertices[0]].co = triset.vertex[triset.vertex_index[i][0]]
+                b_mesh.vertices[f.vertices[1]].co = triset.vertex[triset.vertex_index[i][1]]
+                b_mesh.vertices[f.vertices[2]].co = triset.vertex[triset.vertex_index[i][2]]
+                b_mesh.vertices[f.vertices[0]].normal = triset.normal[triset.normal_index[i][0]]
+                b_mesh.vertices[f.vertices[1]].normal = triset.normal[triset.normal_index[i][1]]
+                b_mesh.vertices[f.vertices[2]].normal = triset.normal[triset.normal_index[i][2]]
+                count = count + 3
+            #for i, vertex in enumerate(triset.vertex):
+            #    b_mesh.vertices[i].co = vertex
 
             # eekadoodle
-            eekadoodle_faces = [v
-                    for f in triset.vertex_index
-                    for v in _eekadoodle_face(*f)]
+            #eekadoodle_faces = [v
+            #        for f in triset.vertex_index
+            #        for v in _eekadoodle_face(*f)]
 
-            b_mesh.tessfaces.foreach_set(
-                'vertices_raw', eekadoodle_faces)
+            #b_mesh.tessfaces.foreach_set(
+            #    'vertices_raw', eekadoodle_faces)
 
             has_normal = (triset.normal_index is not None)
             has_uv = (len(triset.texcoord_indexset) > 0)
