@@ -155,12 +155,6 @@ class ColladaImport(object):
             b_obj.material_slots[0].material = b_mat
             b_obj.active_material = b_mat
 
-            if self._transform('APPLY'):
-                # TODO import normals
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.normals_make_consistent()
-                bpy.ops.object.mode_set(mode='OBJECT')
-
             b_geoms.append(b_obj)
 
         return b_geoms
