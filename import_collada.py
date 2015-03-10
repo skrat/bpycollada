@@ -168,6 +168,9 @@ class ColladaImport(object):
                     not len(triset.vertex_index):
                 return
 
+            has_normal = (triset.normal_index is not None)
+            has_uv = (len(triset.texcoord_indexset) > 0)
+
             b_mesh = bpy.data.meshes.new(b_name)
 
             verts = []
@@ -189,17 +192,22 @@ class ColladaImport(object):
                     idx = verts.index(v)
                 return idx
 
-            for i, f in enumerate(triset):
-                a = add_to_verts(i, 0)
-                b = add_to_verts(i, 1)
-                c = add_to_verts(i, 2)
-                tris.append([a,b,c])
+            if has_normal:
+                for i, f in enumerate(triset):
+                    a = add_to_verts(i, 0)
+                    b = add_to_verts(i, 1)
+                    c = add_to_verts(i, 2)
+                    tris.append([a,b,c])
+            else:
+                pos = triset.vertex
+                tris = triset.vertex_index
 
-            b_mesh.vertices.add(len(verts))
+            b_mesh.vertices.add(len(pos))
             b_mesh.tessfaces.add(len(triset))
 
             b_mesh.vertices.foreach_set('co', unpack_list(pos))
-            b_mesh.vertices.foreach_set('normal', unpack_list(nor))
+            if has_normal:
+                b_mesh.vertices.foreach_set('normal', unpack_list(nor))
             b_mesh.tessfaces.foreach_set('vertices_raw', unpack_face_list(tris))
 
             # eekadoodle
@@ -209,9 +217,6 @@ class ColladaImport(object):
 
             b_mesh.tessfaces.foreach_set(
                 'vertices_raw', eekadoodle_faces)
-
-            has_normal = (triset.normal_index is not None)
-            has_uv = (len(triset.texcoord_indexset) > 0)
 
             if has_normal:
                 # TODO import normals
