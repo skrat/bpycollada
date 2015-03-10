@@ -5,6 +5,7 @@ from contextlib import contextmanager
 
 import bpy
 from bpy.ops import BPyOpsSubModOp
+from bpy_extras.io_utils import unpack_list, unpack_face_list
 from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Vector
 
@@ -174,31 +175,46 @@ class ColladaImport(object):
                 return
 
             b_mesh = bpy.data.meshes.new(b_name)
-            b_mesh.vertices.add(len(triset.vertex_index) * 3)
+
+            verts = []
+            pos = []
+            nor = []
+            tris = []
+
+            def add_to_verts(fid, vid):
+                p = triset.vertex[triset.vertex_index[fid][vid]]
+                n = triset.normal[triset.normal_index[fid][vid]]
+                v = [p[0], p[1], p[2], n[0], n[1], n[2]]
+                idx = -1
+                if not v in verts:
+                    idx = len(verts)
+                    verts.append(v)
+                    pos.append(p)
+                    nor.append(n)
+                else:
+                    idx = verts.index(v)
+                return idx
+
+            for i, f in enumerate(triset):
+                a = add_to_verts(i, 0)
+                b = add_to_verts(i, 1)
+                c = add_to_verts(i, 2)
+                tris.append([a,b,c])
+
+            b_mesh.vertices.add(len(verts))
             b_mesh.tessfaces.add(len(triset))
 
-            count = 0
-            for i, f in enumerate(b_mesh.tessfaces):
-                f.vertices[0] = count
-                f.vertices[1] = count + 1
-                f.vertices[2] = count + 2
-                b_mesh.vertices[f.vertices[0]].co = triset.vertex[triset.vertex_index[i][0]]
-                b_mesh.vertices[f.vertices[1]].co = triset.vertex[triset.vertex_index[i][1]]
-                b_mesh.vertices[f.vertices[2]].co = triset.vertex[triset.vertex_index[i][2]]
-                b_mesh.vertices[f.vertices[0]].normal = triset.normal[triset.normal_index[i][0]]
-                b_mesh.vertices[f.vertices[1]].normal = triset.normal[triset.normal_index[i][1]]
-                b_mesh.vertices[f.vertices[2]].normal = triset.normal[triset.normal_index[i][2]]
-                count = count + 3
-            #for i, vertex in enumerate(triset.vertex):
-            #    b_mesh.vertices[i].co = vertex
+            b_mesh.vertices.foreach_set('co', unpack_list(pos))
+            b_mesh.vertices.foreach_set('normal', unpack_list(nor))
+            b_mesh.tessfaces.foreach_set('vertices_raw', unpack_face_list(tris))
 
             # eekadoodle
-            #eekadoodle_faces = [v
-            #        for f in triset.vertex_index
-            #        for v in _eekadoodle_face(*f)]
+            eekadoodle_faces = [v
+                    for f in tris
+                    for v in _eekadoodle_face(*f)]
 
-            #b_mesh.tessfaces.foreach_set(
-            #    'vertices_raw', eekadoodle_faces)
+            b_mesh.tessfaces.foreach_set(
+                'vertices_raw', eekadoodle_faces)
 
             has_normal = (triset.normal_index is not None)
             has_uv = (len(triset.texcoord_indexset) > 0)
