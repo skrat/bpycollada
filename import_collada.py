@@ -1,6 +1,5 @@
 import os
 import math
-from shutil import rmtree
 from tempfile import NamedTemporaryFile
 from contextlib import contextmanager
 
@@ -11,7 +10,7 @@ from mathutils import Matrix, Vector
 
 from collada import Collada
 from collada.camera import PerspectiveCamera, OrthographicCamera
-from collada.common import DaeError, DaeBrokenRefError
+from collada.common import DaeBrokenRefError
 from collada.light import AmbientLight, DirectionalLight, PointLight, SpotLight
 from collada.material import Map
 from collada.polylist import Polylist, BoundPolylist
@@ -23,11 +22,11 @@ from collada.triangleset import TriangleSet, BoundTriangleSet
 __all__ = ['load']
 
 VENDOR_SPECIFIC = []
-COLLADA_NS = 'http://www.collada.org/2005/11/COLLADASchema'
-DAE_NS = {'dae': COLLADA_NS}
-TRANSPARENCY_DEPTH = 8
+COLLADA_NS      = 'http://www.collada.org/2005/11/COLLADASchema'
+DAE_NS          = {'dae': COLLADA_NS}
+TRANSPARENCY_RAY_DEPTH = 8
+MAX_NAME_LENGTH        = 27
 
-BMESH_GT_62 = (bpy.app.version[1] > 62)
 
 def load(op, ctx, filepath=None, **kwargs):
     c = Collada(filepath, ignore=[DaeBrokenRefError])
@@ -41,7 +40,7 @@ def load(op, ctx, filepath=None, **kwargs):
             for i, obj in enumerate(c.scene.objects('geometry')):
                 b_geoms = imp.geometry(obj)
                 if tf == 'MUL':
-                    tf_mat = _matrix(obj.matrix)
+                    tf_mat = Matrix(obj.matrix)
                     for b_obj in b_geoms:
                         b_obj.matrix_world = tf_mat
         elif tf == 'PARENT':
@@ -55,9 +54,10 @@ def load(op, ctx, filepath=None, **kwargs):
 
     return {'FINISHED'}
 
-
 @contextmanager
 def prevented_updates(ctx):
+    """ Stop Blender from funning scene update for each change. Update it
+        just once the import is finished. """
     scene_update = BPyOpsSubModOp._scene_update
     setattr(BPyOpsSubModOp, '_scene_update', lambda ctx: None)
     yield
@@ -85,7 +85,7 @@ class ColladaImport(object):
         bpy.ops.object.add(type='CAMERA')
         b_obj = self._ctx.object
         b_obj.name = self.name(bcam.original, id(bcam))
-        b_obj.matrix_world = _matrix(bcam.matrix)
+        b_obj.matrix_world = Matrix(bcam.matrix)
         b_cam = b_obj.data
         if isinstance(bcam.original, PerspectiveCamera):
             b_cam.type = 'PERSP'
@@ -119,7 +119,7 @@ class ColladaImport(object):
             b_materials[sym] = bpy.data.materials[b_matname]
 
         primitives = bgeom.original.primitives
-        if self._is_apply():
+        if self._transform('APPLY'):
             primitives = bgeom.primitives()
 
         b_geoms = []
@@ -132,24 +132,29 @@ class ColladaImport(object):
             b_meshname = self.name(bgeom.original, i)
 
             if isinstance(p, (TriangleSet, BoundTriangleSet)):
-                b_obj = self.geometry_triangleset(
+                b_mesh = self.geometry_triangleset(
                         p, b_meshname, b_mat)
             elif isinstance(p, (Polylist, BoundPolylist)):
-                b_obj = self.geometry_triangleset(
+                b_mesh = self.geometry_triangleset(
                         p.triangleset(), b_meshname, b_mat)
             else:
                 continue
-            if not b_obj:
+            if not b_mesh:
                 continue
+
+            b_obj = bpy.data.objects.new(b_meshname, b_mesh)
+            b_obj.data = b_mesh
 
             self._ctx.scene.objects.link(b_obj)
             self._ctx.scene.objects.active = b_obj
 
-            bpy.ops.object.material_slot_add()
+            if len(b_obj.material_slots) == 0:
+                bpy.ops.object.material_slot_add()
             b_obj.material_slots[0].link = 'OBJECT'
             b_obj.material_slots[0].material = b_mat
+            b_obj.active_material = b_mat
 
-            if self._is_apply():
+            if self._transform('APPLY'):
                 # TODO import normals
                 bpy.ops.object.mode_set(mode='EDIT')
                 bpy.ops.mesh.normals_make_consistent()
@@ -160,35 +165,35 @@ class ColladaImport(object):
         return b_geoms
 
     def geometry_triangleset(self, triset, b_name, b_mat):
-        if not self._is_apply() and b_name in bpy.data.meshes:
+        if not self._transform('APPLY') and b_name in bpy.data.meshes:
             # with applied transformation, mesh reuse is not possible
-            b_mesh = bpy.data.meshes[b_name]
+            return bpy.data.meshes[b_name]
         else:
             if triset.vertex_index is None or \
                     not len(triset.vertex_index):
                 return
-            
+
             b_mesh = bpy.data.meshes.new(b_name)
-            faces = b_mesh.tessfaces if BMESH_GT_62\
-                    else b_mesh.faces
-                    
             b_mesh.vertices.add(len(triset.vertex))
-            faces.add(len(triset.vertex_index))
-            for vidx, vertex in enumerate(triset.vertex):
-                b_mesh.vertices[vidx].co = vertex
+            b_mesh.tessfaces.add(len(triset))
+
+            for i, vertex in enumerate(triset.vertex):
+                b_mesh.vertices[i].co = vertex
 
             # eekadoodle
             eekadoodle_faces = [v
                     for f in triset.vertex_index
                     for v in _eekadoodle_face(*f)]
-            faces.foreach_set('vertices_raw', eekadoodle_faces)
+
+            b_mesh.tessfaces.foreach_set(
+                'vertices_raw', eekadoodle_faces)
 
             has_normal = (triset.normal_index is not None)
             has_uv = (len(triset.texcoord_indexset) > 0)
 
             if has_normal:
                 # TODO import normals
-                for i, f in enumerate(faces):
+                for i, f in enumerate(b_mesh.tessfaces):
                     f.use_smooth = not _is_flat_face(
                             triset.normal[triset.normal_index[i]])
             if has_uv:
@@ -201,10 +206,19 @@ class ColladaImport(object):
                             b_mat)
 
             b_mesh.update()
+            return b_mesh
 
-        b_obj = bpy.data.objects.new(b_name, b_mesh)
-        b_obj.data = b_mesh
-        return b_obj
+    def texcoord_layer(self, triset, texcoord, index, b_mesh, b_mat):
+        b_mesh.uv_textures.new()
+        for i, f in enumerate(b_mesh.tessfaces):
+            t1, t2, t3 = index[i]
+            tface = b_mesh.tessface_uv_textures[-1].data[i]
+            # eekadoodle
+            if triset.vertex_index[i][2] == 0:
+                t1, t2, t3 = t3, t1, t2
+            tface.uv1 = texcoord[t1]
+            tface.uv2 = texcoord[t2]
+            tface.uv3 = texcoord[t3]
 
     def light(self, light, i):
         if isinstance(light.original, AmbientLight):
@@ -239,7 +253,7 @@ class ColladaImport(object):
     def node(self, node, parent):
         if isinstance(node, (Node, NodeNode)):
             b_obj = bpy.data.objects.new(self.name(node), None)
-            b_obj.matrix_world = _matrix(node.matrix)
+            b_obj.matrix_world = Matrix(node.matrix)
             self._ctx.scene.objects.link(b_obj)
             if parent:
                 b_obj.parent = parent
@@ -258,7 +272,6 @@ class ColladaImport(object):
         self.rendering_specular(effect, b_mat)
 
     def rendering_constant(self, mat, b_mat):
-        effect = mat.effect
         b_mat.use_shadeless = True
 
     def rendering_lambert(self, mat, b_mat):
@@ -309,28 +322,11 @@ class ColladaImport(object):
         if self._kwargs.get('raytrace_transparency', False):
             b_mat.transparency_method = 'RAYTRACE'
             b_mat.raytrace_transparency.ior = 1.0
-            b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
+            b_mat.raytrace_transparency.depth = TRANSPARENCY_RAY_DEPTH
         if isinstance(effect.index_of_refraction, float):
             b_mat.transparency_method = 'RAYTRACE'
             b_mat.raytrace_transparency.ior = effect.index_of_refraction
-            b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
-
-    def texcoord_layer(self, triset, texcoord, index, b_mesh, b_mat):
-        b_mesh.uv_textures.new()
-        faces = b_mesh.tessfaces if BMESH_GT_62\
-                else b_mesh.faces
-        for i, f in enumerate(faces):
-            t1, t2, t3 = index[i]
-            tface = b_mesh.tessface_uv_textures[-1].data[i] if BMESH_GT_62\
-                    else b_mesh.uv_textures[-1].data[i]
-            # eekadoodle
-            if triset.vertex_index[i][2] == 0:
-                t1, t2, t3 = t3, t1, t2
-            tface.uv1 = texcoord[t1]
-            tface.uv2 = texcoord[t2]
-            tface.uv3 = texcoord[t3]
-            if b_mat and b_mat.name in self._images:
-                tface.image = self._images[b_mat.name]
+            b_mat.raytrace_transparency.depth = TRANSPARENCY_RAY_DEPTH
 
     def color_or_texture(self, color_or_texture, b_mat):
         if isinstance(color_or_texture, Map):
@@ -346,7 +342,6 @@ class ColladaImport(object):
             image = load_image(tmp)
             if image is not None:
                 image.pack(True)
-
                 texture = bpy.data.textures.new(name='Kd', type='IMAGE')
                 texture.image = image
                 mtex = b_mat.texture_slots.add()
@@ -365,12 +360,9 @@ class ColladaImport(object):
             self._namecount += 1
             uid = 'Untitled.' + str(self._namecount)
         base = '%s-%d' % (uid, index)
-        base_len = 27
-        if bpy.app.version < (2, 62):
-            base_len = 16
         if base not in self._names:
             self._namecount += 1
-            self._names[base] = '%s-%.4d' % (base[:base_len], self._namecount)
+            self._names[base] = '%s-%.4d' % (base[:MAX_NAME_LENGTH], self._namecount)
         return self._names[base]
 
     @contextmanager
@@ -380,8 +372,8 @@ class ColladaImport(object):
             out.flush()
             yield out.name
 
-    def _is_apply(self):
-        return self._kwargs['transformation'] == 'APPLY'
+    def _transform(self, t):
+        return self._kwargs['transformation'] == t
 
 
 class SketchUpImport(ColladaImport):
@@ -401,10 +393,7 @@ class SketchUpImport(ColladaImport):
                             break
                     if not diffslot:
                         return
-                    if bpy.app.version < (2, 64, 0):
-                        image.use_premultiply = True
-                    else:
-                        image.use_alpha = True
+                    image.use_alpha = True
                     diffslot.use_map_alpha = True
                     tex = diffslot.texture
                     tex.use_mipmap = True
@@ -415,7 +404,7 @@ class SketchUpImport(ColladaImport):
                     if self._kwargs.get('raytrace_transparency', False):
                         b_mat.transparency_method = 'RAYTRACE'
                         b_mat.raytrace_transparency.ior = 1.0
-                        b_mat.raytrace_transparency.depth = TRANSPARENCY_DEPTH
+                        b_mat.raytrace_transparency.depth = TRANSPARENCY_RAY_DEPTH
 
     def rendering_phong(self, mat, b_mat):
         super().rendering_lambert(mat, b_mat)
@@ -457,13 +446,6 @@ def _is_flat_face(normal):
         if dp < 0.99999 or dp > 1.00001:
             return False
     return True
-
-
-def _matrix(matrix):
-    m = Matrix(matrix)
-    if bpy.app.version < (2, 62):
-        m.transpose()
-    return m
 
 
 def _eekadoodle_face(v1, v2, v3):
